@@ -1,0 +1,8 @@
+{"username":"idancoh30","key":"0d71d81c66f5faf2e7d25fce282c3e8c"} - kaggle api 
+
+How to start? 
+1. srun --gres=gpu:3 --pty bash
+2. mamba activate finalproj
+3. python dataset_prepare.py modelnet40_normal_resampled
+STEP 3 IS DONE, THE OUTPUT IS .NPZ FILES. 
+4. python -m pre_created_walks.save_walk_as_npz modelnet40_normal_resampled
