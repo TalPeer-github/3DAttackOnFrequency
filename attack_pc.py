@@ -3,7 +3,8 @@ import json
 import argparse
 import re
 import numpy as np
-from attack_single_mesh import attack_single_mesh
+from attack_single_pc import attack_single_pc
+
 
 # CLASS LABELS from ModelNet40
 modelnet40_labels = [
@@ -35,7 +36,7 @@ def attack_all_walks(config):
 
             print(f"\n[Attacking] Class: {class_name} (label {label_idx}) | Model ID: {model_id}")
             try:
-                attack_single_mesh(config=config, model_id=model_id, output_dir=output_root)
+                attack_single_pc(config=config, model_id=model_id, output_dir=output_root)
             except Exception as e:
                 print(f"Failed to attack {model_id}: {e}")
                 continue
@@ -43,7 +44,7 @@ def attack_all_walks(config):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, default="attack_config.json")
+    parser.add_argument("--config", type=str, default="configs/attack_config.json")
     args = parser.parse_args()
 
     with open(args.config, "r") as f:

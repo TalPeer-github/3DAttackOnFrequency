@@ -1,0 +1,12 @@
+{
+    "train_walk_npz_path": "pre_created_walks/train",
+    "test_walk_npz_path": "pre_created_walks/test",
+    "logdir": "logs/cloudwalker",
+    "num_classes": 40,
+    "batch_size": 32,
+    "num_epochs": 30,
+    "learning_rate": 0.0005,
+    "use_norm_layer": "BatchNorm",
+    "layer_sizes": null
+  }
+  

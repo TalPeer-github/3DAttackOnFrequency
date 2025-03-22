@@ -1,8 +1,0 @@
-{
-    "train_path": "/home/cohen-idan/finalproj/Preprocessing/datasets_processed/modelnet40_normal_resampled/train",
-    "test_path": "/home/cohen-idan/finalproj/Preprocessing/datasets_processed/modelnet40_normal_resampled/test",
-    "save_path": "/home/cohen-idan/finalproj/Preprocessing/pre_created_walks",
-    "seq_len": 600,
-    "batch_size": 1,
-    "num_epochs": 600
-}
