@@ -25,7 +25,7 @@ def parse_args(exp_params):
     parser.add_argument('--lr', type=float, help="Learning rate", default=lr)
     parser.add_argument('--wd', type=float, help="Weight decay", default=wd)
     parser.add_argument('--num_epochs', type=int, help="Number of epochs to run", default=num_epochs)
-
+    parser.add_argument('--loss_reduction', type=int, help="mean/sum/batchmean", default=batchmean)
     parser.add_argument('--num_classes', type=int, help="Number of classes", default=int(dataset_name[-3:-1]))
     parser.add_argument('--num_walks', type=int, help="Number of random walks for each PC", default=num_walks)
     parser.add_argument('--walks_len', type=int, help="Length of random walk", default=walks_len)

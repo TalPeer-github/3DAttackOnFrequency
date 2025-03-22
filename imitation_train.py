@@ -28,7 +28,7 @@ def lr_scaling(x):
         return 0.5
 
 
-def train_proxy(device='cpu'):
+def train_proxy_prev(device='cpu'):
     def train_epoch(one_label_per_model=False):  # TODO - check about "one_label_per_model" meaning & relevance
         cummulative_loss = 0.
         for pc_batch in train_loader:
@@ -142,6 +142,34 @@ def train_proxy(device='cpu'):
 
 
 def start_train():
+    def val():
+        proxy_model.eval()
+        with torch.no_grad():
+            total_loss = 0.
+            correct = 0
+            for pc_batch in val_loader:
+                _, model_features, labels_ = pc_batch  # TODO - varify correctness (of dataset attributes)
+                model_features, labels_ = model_features.to(device), labels.to(device)
+                shape = model_features.shape
+                model_features = torch.reshape(model_features, (-1, shape[-2], shape[-1]))
+                if one_label_per_model:
+                    labels = torch.reshape(torch.T(torch.stack((labels_,) * args.num_walks)), (-1,))
+                    predictions = proxy_model(model_features, classify=True, training=False)
+                else:
+                    labels = torch.reshape(labels_, (-1, shape[-2]))
+                    skip = args.min_seq_len
+                    probabilities = proxy_model(model_features, classify=True, training=False)[:, skip:]
+                    labels = labels[:, skip + 1:]
+                loss = criterion(labels, probabilities)
+                total_loss += loss.item()
+                predictions = predictions.argmax(dim=1)
+                correct += int((predictions == labels).sum())
+
+            val_avg_loss = total_loss / len(val_loader)
+            val_accuracy = correct / len(loader.dataset)
+
+        return val_avg_loss, val_accuracy
+
     args = config.args
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dataset_name = "ModelNet40" if args.dataset_name is None else args.dataset_name
@@ -156,36 +184,55 @@ def start_train():
                                                      scale_fn=lr_scaling, step_size_up=args.scheduler_step_size,
                                                      scale_mode='cycle')
     train_acc = torcheval.metrics.MulticlassAccuracy()
-    train_loss = torch.nn.CrossEntropyLoss(reduction=args.loss_reduction)
-    proxy_train_loss = torch.nn.KLDivLoss(reduction="batchmean", log_target=False)
+    criterion = torch.nn.CrossEntropyLoss(reduction=args.loss_reduction)
+    proxy_train_loss = torch.nn.KLDivLoss(reduction="sum", log_target=False)  # replacement for reduce_sum
     if args.class_probabilities_target:  # TODO - check relevance
         apply_softmax = True
     else:
         apply_softmax = False
 
-    segmentation_train_acc = torcheval.metrics.MulticlassAccuracy()
-    manifold_segmentation_train_acc = torcheval.metrics.MulticlassAccuracy()
-    segmentation_train_loss = torch.nn.CrossEntropyLoss(reduction=args.loss_reduction)
-    # TODO - read about loss_reduction "sum" VS "mean"
-    manifold_segmentation_train_loss = torch.nn.KLDivLoss(reduction="batchmean", log_target=False)
-    # TODO - check about "log_target = True"
-
-    train_logs = {"segmentation_train_loss": torcheval.functional.mean(),
-                  "segmentation_train_loss_2": segmentation_train_loss,
-                  "manifold_segmentation_train_loss": manifold_segmentation_train_loss,
-                  "segmentation_train_acc": segmentation_train_acc}
-
-    # TODO - understand which objective is relevant to which case (Tal)
-    train_accuracies, val_accuracies = [], []
     train_losses, val_losses = [], []
+    train_accuracies, val_accuracies = [], []
 
     for epoch in range(1, args.num_epochs + 1):
-        train_loss, train_acc = train_epoch(one_label_per_model=one_label_per_model)
-        val_loss, val_acc = test_epoch(one_label_per_model=one_label_per_model)
+        batch_acc = []
+        cummulative_loss = 0.
+        model.train()
+        for pc_batch in train_loader:  # TODO - understand loss logic
+            _, model_features, labels_ = pc_batch
+            model_features, labels_ = model_features.to(device), labels.to(device)
+            shape = model_features.shape
+            model_features = torch.reshape(model_features, (-1, shape[-2], shape[-1]))
+            with torch.autograd:
+                if one_label_per_model:
+                    labels = torch.reshape(torch.T(torch.stack((labels_,) * args.num_walks)), (-1,))  # TODO - validate
+                    f, probabilities = proxy_model(model_features, train=True, classify=False)
+                    predictions = probabilities.argmax(dim=1)
+                    confidence = probabilities.max(dim=1).values
+                else:
+                    labels = torch.reshape(labels_, (-1, shape[-2]))
+                    skip = args.min_seq_len
+                    f, predictions = proxy_model(model_features)[:, skip:]
+                    labels = labels[:, skip + 1:]
+                if args.train_loss == ['manifold_CE']:  # TODO - check about this param (and condition in general)
+                    labels = labels_to_onehot(labels_tensor=labels, num_classes=args.num_classes)
+                    loss = criterion(labels, predictions)
+                else:
+                    loss = proxy_train_loss(labels, predictions)
+                cummulative_loss += loss  # TODO - not sure if necessary, since reduction was set to "sum"
 
-        train_accuracies.append(train_acc)
-        val_accuracies.append(val_acc)
-        train_losses.append(train_loss)
+            loss.backward()
+            optimizer.step()
+            lr_scheduler.step()
+
+            acc = train_acc(labels, predictions)
+            batch_acc.append(acc)
+
+        train_losses.append(cummulative_loss)
+        train_accuracies.append(np.mean(batch_acc))
+
+        val_loss, val_accuracy = val()
+
+        val_accuracies.append(val_accuracy)
         val_losses.append(val_loss)
-
     return train_losses, val_losses, train_accuracies, val_accuracies
