@@ -38,7 +38,7 @@ def train_proxy(device='cpu'):
             with torch.autograd:
                 if one_label_per_model:
                     labels = torch.reshape(torch.T(torch.stack((labels_,) * args.num_walks)), (-1,))  # TODO - validate
-                    predictions = proxy_model(model_features)
+                    predictions = proxy_model(model_features, train=True, classify=True)
                 else:
                     labels = torch.reshape(labels_, (-1, shape[-2]))
                     skip = args.min_seq_len
@@ -125,6 +125,56 @@ def train_proxy(device='cpu'):
                   "segmentation_train_loss_2": segmentation_train_loss,
                   "manifold_segmentation_train_loss": manifold_segmentation_train_loss,
                   "segmentation_train_acc": segmentation_train_acc}
+    # TODO - understand which objective is relevant to which case (Tal)
+    train_accuracies, val_accuracies = [], []
+    train_losses, val_losses = [], []
+
+    for epoch in range(1, args.num_epochs + 1):
+        train_loss, train_acc = train_epoch(one_label_per_model=one_label_per_model)
+        val_loss, val_acc = test_epoch(one_label_per_model=one_label_per_model)
+
+        train_accuracies.append(train_acc)
+        val_accuracies.append(val_acc)
+        train_losses.append(train_loss)
+        val_losses.append(val_loss)
+
+    return train_losses, val_losses, train_accuracies, val_accuracies
+
+
+def start_train():
+    args = config.args
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    dataset_name = "ModelNet40" if args.dataset_name is None else args.dataset_name
+    pre_transform = get_pre_transform()
+    transform = get_transform(args.num_points_to_sample)
+    train_dataset, val_dataset = create_dataset(dataset_name, pre_transform, transform)
+    train_loader, val_loader = create_dataloaders(train_dataset, val_dataset)
+    proxy_model = proxy_network.RnnWalkNet(args, args.n_classes, args.net_input_dim, init_net_using)
+    proxy_model = proxy_model.to(device)
+    optimizer = torch.optim.Adam(proxy_model.parameters(), lr=args.lr, betas=args.betas, weight_decay=args.wd)
+    lr_scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer=optimizer, base_lr=args.base_lr, max_lr=args.max_lr,
+                                                     scale_fn=lr_scaling, step_size_up=args.scheduler_step_size,
+                                                     scale_mode='cycle')
+    train_acc = torcheval.metrics.MulticlassAccuracy()
+    train_loss = torch.nn.CrossEntropyLoss(reduction=args.loss_reduction)
+    proxy_train_loss = torch.nn.KLDivLoss(reduction="batchmean", log_target=False)
+    if args.class_probabilities_target:  # TODO - check relevance
+        apply_softmax = True
+    else:
+        apply_softmax = False
+
+    segmentation_train_acc = torcheval.metrics.MulticlassAccuracy()
+    manifold_segmentation_train_acc = torcheval.metrics.MulticlassAccuracy()
+    segmentation_train_loss = torch.nn.CrossEntropyLoss(reduction=args.loss_reduction)
+    # TODO - read about loss_reduction "sum" VS "mean"
+    manifold_segmentation_train_loss = torch.nn.KLDivLoss(reduction="batchmean", log_target=False)
+    # TODO - check about "log_target = True"
+
+    train_logs = {"segmentation_train_loss": torcheval.functional.mean(),
+                  "segmentation_train_loss_2": segmentation_train_loss,
+                  "manifold_segmentation_train_loss": manifold_segmentation_train_loss,
+                  "segmentation_train_acc": segmentation_train_acc}
+
     # TODO - understand which objective is relevant to which case (Tal)
     train_accuracies, val_accuracies = [], []
     train_losses, val_losses = [], []

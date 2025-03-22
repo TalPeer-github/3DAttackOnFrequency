@@ -93,6 +93,7 @@ class RnnWalkNet(RnnWalkBase):
         and aim to measure a distance between the probability spaces of the networks (hence using KLD).
 
     """
+
     # TODO - handle optimizer settings
     def __init__(self, params, classes, net_input_dim, model_fn=None, model_must_be_load=False, optimizer=None):
         if params.layer_sizes is None:
@@ -127,7 +128,7 @@ class RnnWalkNet(RnnWalkBase):
 
         self._fc_last = nn.Linear(self._layer_sizes['gru3'], self._classes)
 
-    def forward(self, model_features, classify=False):
+    def forward(self, model_features, classify=False, training=True):
         x = self._fc1(model_features)
         if self._use_norm_layer:
             x = self._norm1(x.transpose(1, 2)).transpose(1, 2)

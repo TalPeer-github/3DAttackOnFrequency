@@ -98,6 +98,11 @@ def train_val(params):
         model_ftrs = tf.reshape(model_ftrs_, (-1, sp[-2], sp[-1]))
         with tf.GradientTape() as tape:
             labels = tf.reshape(tf.transpose(tf.stack((labels_,) * params.n_walks_per_model)), (-1,))
+            # b = torch.tensor([[0, 1], [2, 3]])
+            # torch.reshape(b, (-1,)) --> tensor([ 0,  1,  2,  3])
+            # torch.stack((labels_,) * params.n_walks_per --> (labels,labels,..., labels), num_walks times
+            # (labels,labels,..., labels).T --> swap cols to rows
+            # torch.reshape((labels,labels,..., labels), (-1)) --> flatten to 1d
             predictions = dnn_model(model_ftrs, classify=True, training=True)
             train_accuracy(labels, predictions)
             loss = train_loss(labels, predictions)

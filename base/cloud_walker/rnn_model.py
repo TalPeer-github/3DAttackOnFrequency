@@ -152,6 +152,8 @@ class RnnWalkNet(RnnWalkBase):
 
     def call(self, model_ftrs, classify=True, training=True):
 
+        ######### Point Representaion Submodule #########
+
         x = model_ftrs[:, :]
         x = self._fc2(x)
         if self._use_norm_layer:
@@ -169,6 +171,12 @@ class RnnWalkNet(RnnWalkBase):
         x = tf.nn.relu(x)
 
         x = tf.concat([model_ftrs[:, :, 0:3], x], axis=-1)
+        # x := Sequence of vectors per walk W_ij, (j walk (total of num_walks) on point cloud S_i))
+        # We preserve the original point context by concatenating the input coordinate to the per-point representation
+        # and then feeding it into the next submodule.
+
+        ######### Walk Representaion Submodule #########
+        # x := sequence of feature vectors, a single vector for each point in the walk.
         x1 = self._gru1(x, training=training)
         x2 = self._gru2(x1, training=training)
         x3 = self._gru3(x2, training=training)
