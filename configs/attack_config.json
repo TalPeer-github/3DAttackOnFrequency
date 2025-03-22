@@ -1,0 +1,14 @@
+{
+    "trained_model": "-",
+    "checkpoint_path": "xxx.pth",
+    "num_classes": 40,
+    "walk_len": 600,
+    "walk_npz_root": "data/walks/test",
+    "attacking_weight": 1.0,
+    "step_size": 0.01,
+    "max_iter": 50,
+    "max_label_diff": 0.01,
+    "use_norm_layer": "BatchNorm"
+  }
+  
+  
