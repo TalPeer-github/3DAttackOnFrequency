@@ -9,7 +9,9 @@ from time import sleep
 
 def parse_args(exp_params):
     """
-    :return:
+    # TODO - define more params for PC-dataset
+    # TODO - define more params for relevant to imitiating network (research CloudWalker & Adversarial-meshes params)
+    :return: parsed arguments
     """
 
     model_type, dataset_name, batch_size, hidden_channels, num_epochs, num_walks, walks_len, lr, wd = exp_params

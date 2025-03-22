@@ -31,8 +31,8 @@ def lr_scaling(x):
 def train_proxy(device='cpu'):
     def train_epoch(one_label_per_model):
         cummulative_loss = 0.
-        for pc, _ in train_loader:  # TODO - undertand dataset attributes
-            model_features, labels_ = pc
+        for pc_batch in train_loader:
+            _, model_features, labels_ = pc_batch  # TODO - varify correctness (of dataset attributes)
             shape = model_features.shape
             model_features = torch.reshape(model_features, (-1, shape[-2], shape[-1]))
             with torch.autograd:
@@ -68,8 +68,8 @@ def train_proxy(device='cpu'):
     def test_epoch(one_label_per_model):
         test_losses, test_accuracies = [], []
 
-        for pc, _ in test_loader:  # TODO - undertand dataset attributes
-            model_features, labels_ = pc
+        for pc_batch in val_loader:
+            _, model_features, labels_ = pc_batch  # TODO - varify correctness (of dataset attributes)
             with torch.no_grad():
                 shape = model_features.shape
                 model_features = torch.reshape(model_features, (-1, shape[-2], shape[-1]))
@@ -98,8 +98,8 @@ def train_proxy(device='cpu'):
     transform = get_transform(args.num_points_to_sample)  # TODO - set args default = 2048
 
     train_dataset, val_dataset = create_dataset(dataset_name, pre_transform, transform)
+    # TODO - align with PointCloudDataset class, so 1 train batch tuple -> (<something>, model_features, labels)
     train_loader, val_loader = create_dataloaders(train_dataset, val_dataset)
-    walk_train_loader, val_train_loader = create_dataloaders()  # TODO - check
 
     proxy_model = proxy_network.RnnWalkNet(args, args.n_classes, args.net_input_dim, init_net_using)
     proxy_model = proxy_model.to(device)
@@ -124,7 +124,7 @@ def train_proxy(device='cpu'):
                   "segmentation_train_loss_2": segmentation_train_loss,
                   "manifold_segmentation_train_loss": manifold_segmentation_train_loss,
                   "segmentation_train_acc": segmentation_train_acc}
-
+    # TODO - understand which objective is relevant to which case (Tal)
     train_accuracies, val_accuracies = [], []
     train_losses, val_losses = [], []
 
