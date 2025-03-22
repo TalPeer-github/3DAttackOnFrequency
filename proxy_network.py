@@ -84,6 +84,15 @@ class RnnWalkBase(nn.Module):
 
 
 class RnnWalkNet(RnnWalkBase):
+    """
+    Given a random walk that consists of vertics (3D coordinates) along the mesh, the data is aggregated as follows:
+        1. 3 FC layers upscale each vertex into 256 dimentions (64 -> 128 -> 256)
+        2. 3 GRU layers which aggragates the information of the vertics by "remembering" the walk history.
+        3. 2 (for now) FC layers for derive the prediction function of the imitated network (CloudWalker).
+        The imitating network requires the full probabilities vectors of CloudWalker (or any network we wish to imitate)
+        and aim to measure a distance between the probability spaces of the networks (hence using KLD).
+
+    """
     # TODO - handle optimizer settings
     def __init__(self, params, classes, net_input_dim, model_fn=None, model_must_be_load=False, optimizer=None):
         if params.layer_sizes is None:
@@ -118,7 +127,7 @@ class RnnWalkNet(RnnWalkBase):
 
         self._fc_last = nn.Linear(self._layer_sizes['gru3'], self._classes)
 
-    def forward(self, model_features, classify=True):
+    def forward(self, model_features, classify=False):
         x = self._fc1(model_features)
         if self._use_norm_layer:
             x = self._norm1(x.transpose(1, 2)).transpose(1, 2)

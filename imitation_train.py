@@ -29,7 +29,7 @@ def lr_scaling(x):
 
 
 def train_proxy(device='cpu'):
-    def train_epoch(one_label_per_model):
+    def train_epoch(one_label_per_model=False):  # TODO - check about "one_label_per_model" meaning & relevance
         cummulative_loss = 0.
         for pc_batch in train_loader:
             _, model_features, labels_ = pc_batch  # TODO - varify correctness (of dataset attributes)
@@ -48,10 +48,10 @@ def train_proxy(device='cpu'):
                 if args.train_loss == ['manifold_CE']:  # TODO - check about this param
                     labels = labels_to_onehot(labels_tensor=labels, num_classes=args.num_classes)
                     acc = manifold_segmentation_train_acc(labels, predictions)
-                    loss = manifold_seg_loss(labels, predictions)
+                    loss = KLDivLoss(labels, predictions)
                 else:
                     acc = segmentation_train_acc(labels, predictions)
-                    loss = segmentation_train_loss(labels, predictions)
+                    loss = nn.KLDivLoss(labels, predictions)
                 cummulative_loss += torch.reduce_sum(proxy_model.losses)
                 # TODO - Check for a suitable torch version & choose - cummulative_loss/loss (original = loss).
                 #  I think it should be "losses += torch.sum(losses)" with respect to some dimention.
@@ -59,6 +59,7 @@ def train_proxy(device='cpu'):
             gradients = torch.autograd.grad(loss, proxy_model.trainable_variables)
             optimizer.apply_gradients(zip(gradients, proxy_model.trainable_variables))
             # TODO - Check for a suitable torch version
+
             lr_scheduler.step()
 
             train_losses.append(train_logs['segmentation_train_loss'](cummulative_loss))
