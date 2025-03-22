@@ -28,7 +28,7 @@ def lr_scaling(x):
         return 0.5
 
 
-def train_proxy():
+def train_proxy(device='cpu'):
     def train_epoch(one_label_per_model):
         cummulative_loss = 0.
         for pc, _ in train_loader:  # TODO - undertand dataset attributes
@@ -136,3 +136,5 @@ def train_proxy():
         val_accuracies.append(val_acc)
         train_losses.append(train_loss)
         val_losses.append(val_loss)
+
+    return train_losses, val_losses, train_accuracies, val_accuracies
