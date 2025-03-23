@@ -63,18 +63,19 @@ class RnnWalkBase(nn.Module):
             self.load_state_dict(checkpoint["model"])
             print(f"Loaded checkpoint from {self.checkpoint_path}/checkpoint.pth")
 
-    def save_weights(self, folder, step=None, keep=False):
+    def save_weights(self, folder, step=None, keep=False, optimizer=None):
         os.makedirs(folder, exist_ok=True)
         checkpoint_path = os.path.join(folder, 'checkpoint.pth')
         torch.save({
             "model": self.state_dict(),
-            "optimizer": self.optimizer.state_dict() if self.optimizer else None
+            "optimizer": optimizer.state_dict() if optimizer else None
         }, checkpoint_path)
 
         if keep and step is not None:
             file_name = str(step).zfill(8)
             keep_path = os.path.join(folder, f'learned_model2keep__{file_name}.pth')
-            torch.save(self.state_dict(), keep_path)
+            torch.save({"model": self.state_dict()}, keep_path)
+
 
 
 class RnnWalkNet(RnnWalkBase):

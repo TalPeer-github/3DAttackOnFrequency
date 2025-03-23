@@ -95,7 +95,7 @@ def main():
         print(f"[Epoch {epoch:02d}] Train Loss: {train_loss:.4f}, Acc: {train_acc:.4f} | "
               f"Val Loss: {val_loss:.4f}, Acc: {val_acc:.4f}")
 
-        model.save_weights(cfg.logdir, step=epoch, keep=True)
+        model.save_weights(cfg.logdir, step=epoch, keep=True, optimizer=optimizer)
 
 
 if __name__ == "__main__":
