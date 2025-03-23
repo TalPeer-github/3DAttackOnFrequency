@@ -3,7 +3,7 @@ import glob
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import numpy as np
 
 class RnnWalkBase(nn.Module):
     def __init__(self, params, classes, net_input_dim, model_fn=None, model_must_be_load=False,

@@ -1,90 +1,85 @@
 import os
-import time
 import json
+import argparse
 import torch
 import numpy as np
-from types import SimpleNamespace
 from tqdm import tqdm
+from types import SimpleNamespace
 import torch.nn.functional as F
 
 from dataset import WalksDataset
 from proxy_network import RnnWalkNet
 
 
-def define_network_and_its_params(config):
+def define_network_and_its_params(cfg):
     """
-    Loads model parameters and the trained RNN model (CloudWalker).
+    Loads CloudWalker RNN model from config checkpoint and initializes it.
     """
-    with open(os.path.join(config["trained_model"], 'params.txt')) as f:
-        params_dict = json.load(f)
-    params = SimpleNamespace(**params_dict)
-
-    # Override or ensure runtime consistency
-    params.batch_size = 1
-    params.seq_len = config["walk_len"]
-    params.n_walks_per_model = 32
-    params.use_norm_layer = config.get("use_norm_layer", "BatchNorm")
-    params.layer_sizes = None
-
-    model = RnnWalkNet(params, config["num_classes"], net_input_dim=3)
-    checkpoint = torch.load(config["checkpoint_path"], map_location="cpu")
+    model = RnnWalkNet(cfg, cfg.num_classes, net_input_dim=3)
+    checkpoint = torch.load(cfg.checkpoint_path, map_location="cpu", weights_only=True)
     model.load_state_dict(checkpoint["model"])
     model.eval()
+    return model
 
-    return params, model
 
+import os
 
 def load_walk_npz_by_id(model_id, dataset_root):
     """
-    Find the walk .npz file for the given model ID (e.g., airplane_0123)
+    Loads a single walk .npz file from disk given a model ID (e.g., airplane_0631).
+    It converts it into the full path: 
+    dataset_root/test__5000__airplane__airplane_0631/test__5000__airplane__airplane_0631_traj.npz
     """
-    model_dir = os.path.join(dataset_root, model_id)
-    walk_path = os.path.join(model_dir, model_id + "_traj.npz")
-    if not os.path.exists(walk_path):
-        raise FileNotFoundError(f"Walk file not found: {walk_path}")
-    return walk_path
+    name, idx = model_id.split("_")
+    folder_name = f"test__5000__{name}__{model_id}"
+    file_name = f"{folder_name}_traj.npz"
+    full_path = os.path.join(dataset_root, folder_name, file_name)
+
+    if not os.path.exists(full_path):
+        raise FileNotFoundError(f"[ERROR] Walk file not found: {full_path}")
+
+    return full_path
 
 
-def attack_single_pc(config, model_id, output_dir=None):
+
+def attack_single_pc(cfg, model_id, output_dir=None):
+    print(f"[INFO] Attacking: {model_id}")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    params, dnn_model = define_network_and_its_params(config)
-    dnn_model.to(device)
-
-    # Load walk from .npz
-    walk_path = load_walk_npz_by_id(model_id, config["walk_npz_root"])
+    model = define_network_and_its_params(cfg).to(device)
+    model.train()
+    # Load walk input
+    walk_path = load_walk_npz_by_id(model_id, cfg.walk_npz_root)
     data = np.load(walk_path, allow_pickle=True)
-    walks = torch.tensor(data["model_features"], dtype=torch.float32)  # (N, T, 3)
+    walks = torch.tensor(data["model_features"], dtype=torch.float32).to(device)  # (N, T, 3)
     label = int(data["label"])
-
-    walks = walks.to(device)
     walks.requires_grad = True
 
-    # One-hot label
-    one_hot = F.one_hot(torch.tensor(label), num_classes=config["num_classes"]).float().to(device)
+    # Attack params
+    w = cfg.attacking_weight
+    step_size = cfg.step_size
+    max_iter = cfg.max_iter
+    max_label_diff = cfg.max_label_diff
 
-    # Attack hyperparams
-    w = config.get("attacking_weight", 1.0)
-    step_size = config.get("step_size", 0.01)
-    max_iter = config.get("max_iter", 50)
-    max_label_diff = config.get("max_label_diff", 0.01)
-
+    # One-hot true label
+    one_hot = F.one_hot(torch.tensor(label), num_classes=cfg.num_classes).float().to(device)
     num_wrong = 0
+
     for step in range(max_iter):
-        dnn_model.zero_grad()
-        logits = dnn_model(walks)  # shape (N, C)
+        model.zero_grad()
+        logits = model(walks)  # (N, C)
         probs = F.softmax(logits, dim=1)
-        avg_pred = probs.mean(dim=0)
+        avg_pred = probs.mean(dim=0)  # (C,)
 
         loss = -w * F.kl_div(avg_pred.log(), one_hot, reduction="batchmean")
         loss.backward()
         grad = walks.grad.detach()
 
-        # Apply gradient step
+        # Gradient step
         walks = walks + step_size * grad.sign()
         walks = walks.detach().clone().requires_grad_(True)
 
-        # Evaluate after step
-        new_logits = dnn_model(walks)
+        # Re-evaluate
+        new_logits = model(walks)
         new_probs = F.softmax(new_logits, dim=1).mean(dim=0)
         pred_class = torch.argmax(new_probs).item()
         confidence = new_probs[label].item()
@@ -97,22 +92,21 @@ def attack_single_pc(config, model_id, output_dir=None):
             num_wrong = 0
 
         if num_wrong >= 10:
-            print("Early stopping: model consistently fooled.")
+            print("[✔] Early stopping: model consistently fooled.")
             break
 
-    # Save attacked walk
+    # Save result
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
         out_path = os.path.join(output_dir, f"{model_id}_attacked.npz")
-        np.savez(out_path, model_features=walks.cpu().numpy(), label=label, model_id=model_id)
-        print(f"Saved attacked walk to: {out_path}")
+        np.savez(out_path, model_features=walks.detach().cpu().numpy(), label=label, model_id=model_id)
+        print(f"[✓] Saved attacked walk to: {out_path}")
+
 
     return walks.detach().cpu()
 
 
 if __name__ == "__main__":
-    import argparse
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="configs/attack_config.json")
     parser.add_argument("--id", type=str, required=True, help="Model ID, e.g., airplane_0123")
@@ -120,6 +114,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     with open(args.config, "r") as f:
-        config = json.load(f)
+        cfg_dict = json.load(f)
+    cfg = SimpleNamespace(**cfg_dict)
 
-    attack_single_pc(config, args.id, output_dir=args.output_dir)
+    attack_single_pc(cfg, args.id, output_dir=args.output_dir)

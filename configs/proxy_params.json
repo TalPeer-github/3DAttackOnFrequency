@@ -1,12 +1,21 @@
 {
     "train_walk_npz_path": "pre_created_walks/train",
     "test_walk_npz_path": "pre_created_walks/test",
-    "logdir": "logs/cloudwalker",
+    "logdir": "saved_checkpoints",
     "num_classes": 40,
     "batch_size": 4,
     "num_epochs": 10,
     "learning_rate": 0.0005,
     "use_norm_layer": "BatchNorm",
-    "layer_sizes": null
+    "layer_sizes": {
+      "fc1": 64,
+      "fc2": 128,
+      "fc3": 256,
+      "gru1": 1024,
+      "gru2": 1024,
+      "gru3": 512,
+      "fc4": 512,
+      "fc5": 128
+  }
   }
   

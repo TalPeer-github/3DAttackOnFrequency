@@ -1,7 +1,7 @@
 {
-  "trained_model": "logs/cloudwalker",
-  "checkpoint_path": "logs/cloudwalker/checkpoint.pth",
-  "walk_npz_root": "data/precomputed_walks/test",
+  "trained_model": "saved_checkpoints",
+  "checkpoint_path": "saved_checkpoints/checkpoint.pth",
+  "walk_npz_root": "pre_created_walks/test",
   "num_classes": 40,
   "walk_len": 600,
   "attacking_weight": 1.0,
@@ -9,5 +9,16 @@
   "max_iter": 50,
   "max_label_diff": 0.01,
   "use_norm_layer": "BatchNorm",
-  "output_dir": "attacks"
+  "output_dir": "attacks",
+  "layer_sizes": {
+      "fc1": 64,
+      "fc2": 128,
+      "fc3": 256,
+      "gru1": 1024,
+      "gru2": 1024,
+      "gru3": 512,
+      "fc4": 512,
+      "fc5": 128
+  },
+"logdir": "saved_checkpoints"
 }

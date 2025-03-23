@@ -34,7 +34,7 @@ def attack_all_walks(config):
                 print(f"Skipping {model_id}: already attacked")
                 continue
 
-            print(f"\n[Attacking] Class: {class_name} (label {label_idx}) | Model ID: {model_id}")
+            print(f"\n[Attacking Class: {class_name} (label {label_idx}) | Model ID: {model_id}")
             try:
                 attack_single_pc(config=config, model_id=model_id, output_dir=output_root)
             except Exception as e:
