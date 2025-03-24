@@ -30,6 +30,7 @@ def load_walk_npz_by_id(model_id, dataset_root):
     It converts it into the full path: 
     dataset_root/test__5000__airplane__airplane_0631/test__5000__airplane__airplane_0631_traj.npz
     """
+    #change to match file names
     name, idx = model_id.split("_")
     folder_name = f"test__5000__{name}__{model_id}"
     file_name = f"{folder_name}_traj.npz"
