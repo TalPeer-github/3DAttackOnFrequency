@@ -34,7 +34,8 @@ def create_dataset(dataset_name, pre_transform, transform, name='40', num_point_
         pre_transform = T.NormalizeScale()
     if transform is None:
         transform = T.SamplePoints(num_point_to_sample)
-
+    pre_transform = get_pre_transform()
+    transform = get_transform()
     train_dataset = ModelNet(
         root=dataset_name, name=name, train=True,
         transform=transform, pre_transform=pre_transform
@@ -57,7 +58,7 @@ def get_pre_transform():
     return pre_transform
 
 
-def get_transform(num_sample=2048):
+def get_transform(num_sample=256):
     """
     It's the transform that is applied to the data object before every access.
     In this case, we use the torch_geometric.transforms.SamplePoints to sample a fixed number of points
@@ -65,8 +66,7 @@ def get_transform(num_sample=2048):
     :param dataset_name: modelnet dataset to use - either 40/10. default is set to 40.
     :return:
     """
-    transform = T.SamplePoints(num_sample)
-
+    transform = T.Compose([T.SamplePoints(num_sample), T.KNNGraph(k=6)])
     return transform
 
 

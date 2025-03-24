@@ -65,7 +65,19 @@ invariant, differentiable and trainable end-to-end Gumbel
 Subset Sampling (GSS) layer is developed to learn hierarchical features.
 
 ##### Hierarchical Data Structure-based Methods
+
 These networks are constructed based on different hierarchical data structures (e.g., octree and kd-tree). In these
 methods, point features are learned hierarchically from leaf
 nodes to the root node along a tree.
 
+We propose a novel, black-box, unified, and general adversarial attack, which leads to misclassification in SOTA mesh
+neural
+networks.
+At the base of our method lies the
+concept of an imitating network. We propose to train a network to
+imitate a given classification network. For each network we wish
+to attack, our imitating network gets as input pairs of a point-cloud & a prediction vector for that point cloud
+(i.e. quering all point clouds in the dataset).
+We utilize the general appromixation low, and aim to learn the classification function of the given attacked network,
+by learning to generate prediction vector of the given point-cloud (hence, our loss function consider the distribution
+of the prediction vectors rather than one-hot label vector for used for classification)
