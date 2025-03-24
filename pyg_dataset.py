@@ -66,7 +66,6 @@ def get_transform(num_sample=2048):
     :return:
     """
     transform = T.SamplePoints(num_sample)
-    [T.SamplePoints, T.RandomJitter,
 
     return transform
 
