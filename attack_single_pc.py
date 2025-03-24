@@ -87,7 +87,6 @@ def attack_single_pc(config, model_id, pc_data=None, output_dir=None):
         source_prediction = (prediction.numpy())[config['source_label']]
 
         attack.backward(features)  # TODO - check if needed (since using gradients above)
-        # dy/dx = tf.tape.gradient(y,x)
 
         attacked_features = features + gradients
         attack_prediction = attacked_dnn_model(attacked_features, classify=True, training=False)
@@ -101,7 +100,7 @@ def attack_single_pc(config, model_id, pc_data=None, output_dir=None):
         if np.argmax(prediction) != source_prediction:  # TODO - check about source_prediction
             false_classifications += 1
         else:
-            source_prediction = 0
+            false_classifications = 0  # TODO - logic?
 
         attack_losses.append(attack.numpy())
         vertices_counter[vertics_idx] += 1
