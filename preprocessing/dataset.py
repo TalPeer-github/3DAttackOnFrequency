@@ -7,8 +7,6 @@ from scipy.spatial import KDTree
 import random
 
 
-
-
 # ----------------------- POINT CLOUD DATASET -----------------------
 
 class PointCloudDataset(Dataset):
@@ -114,7 +112,7 @@ class WalksDataset(Dataset):
         """
         # Find all subdirectories inside dataset_path
         self.folders = sorted(glob.glob(os.path.join(dataset_path, "*")))
-        
+
         # Collect all _traj.npz files inside those folders
         self.files = [
             os.path.join(folder, os.path.basename(folder) + "_traj.npz")

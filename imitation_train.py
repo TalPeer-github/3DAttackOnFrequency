@@ -142,7 +142,45 @@ def train_proxy_prev(device='cpu'):
 
 
 def start_train():
-    def val():
+    def _train():
+        correct = 0
+        total_loss = 0.
+        model.train()
+        for pc_batch in train_loader:
+            _, walk_features, labels_ = pc_batch
+            walk_features, labels_ = walk_features.to(device), labels.to(device)
+            shape = walk_features.shape
+            walk_features = torch.reshape(walk_features, (-1, shape[-2], shape[-1]))
+
+            optimizer.zero_grad()
+            with torch.autograd:
+                one_label_per_model = True  # Not sure about the param but logicly this code part makes more sense.
+                if not one_label_per_model:
+                    labels = torch.reshape(labels_, (-1, shape[-2]))
+                    skip = args.walks_len
+                    f, probabilities = proxy_model(walk_features, train=True, classify=False)[:, skip:]
+                    labels = labels[:, skip + 1:]
+                else:
+                    labels = torch.reshape(torch.t(torch.stack((labels_,) * args.num_walks)), (-1,))  # TODO - validate
+                    f, probabilities = proxy_model(walk_features, train=True, classify=False)
+                    predictions = probabilities.argmax(dim=1)
+                    confidence = probabilities.max(dim=1).values
+                labels = labels_to_onehot(labels_tensor=labels, num_classes=args.num_classes)
+                loss = proxy_train_criterion(labels, probabilities)
+
+            total_loss += loss.detach().item()
+            correct += int((predictions == labels).sum())  # TODO - Might fail here - need to varify shape
+
+            loss.backward()
+            optimizer.step()
+            lr_scheduler.step()
+
+        train_avg_loss = total_loss / len(train_loader)
+        train_accuracy = correct / len(train_loader)
+
+        return train_avg_loss, train_accuracy
+
+    def _val():
         proxy_model.eval()
         with torch.no_grad():
             total_loss = 0.
@@ -152,21 +190,23 @@ def start_train():
                 model_features, labels_ = model_features.to(device), labels.to(device)
                 shape = model_features.shape
                 model_features = torch.reshape(model_features, (-1, shape[-2], shape[-1]))
-                if one_label_per_model:
-                    labels = torch.reshape(torch.T(torch.stack((labels_,) * args.num_walks)), (-1,))
-                    predictions = proxy_model(model_features, classify=True, training=False)
-                else:
+                one_label_per_model = True  # Not sure about the param but logicly this code part makes more sense.
+                if not one_label_per_model:
                     labels = torch.reshape(labels_, (-1, shape[-2]))
                     skip = args.min_seq_len
                     probabilities = proxy_model(model_features, classify=True, training=False)[:, skip:]
                     labels = labels[:, skip + 1:]
-                loss = criterion(labels, probabilities)
+                else:
+                    labels = torch.reshape(torch.T(torch.stack((labels_,) * args.num_walks)), (-1,))
+                    probabilities = proxy_model(model_features, classify=True, training=False)
+
+                loss = val_criterion(labels, probabilities)  # TODO - Check label and predictions shape (!)
                 total_loss += loss.item()
-                predictions = predictions.argmax(dim=1)
-                correct += int((predictions == labels).sum())
+                predictions = probabilities.argmax(dim=1)
+                correct += int((predictions == labels).sum())  # TODO - Might fail here
 
             val_avg_loss = total_loss / len(val_loader)
-            val_accuracy = correct / len(loader.dataset)
+            val_accuracy = correct / len(val_loader)
 
         return val_avg_loss, val_accuracy
 
@@ -183,56 +223,18 @@ def start_train():
     lr_scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer=optimizer, base_lr=args.base_lr, max_lr=args.max_lr,
                                                      scale_fn=lr_scaling, step_size_up=args.scheduler_step_size,
                                                      scale_mode='cycle')
-    train_acc = torcheval.metrics.MulticlassAccuracy()
-    criterion = torch.nn.CrossEntropyLoss(reduction=args.loss_reduction)
-    proxy_train_loss = torch.nn.KLDivLoss(reduction="sum", log_target=False)  # replacement for reduce_sum
-    if args.class_probabilities_target:  # TODO - check relevance
-        apply_softmax = True
-    else:
-        apply_softmax = False
+    val_criterion = torch.nn.CrossEntropyLoss(reduction=args.loss_reduction)
+    proxy_train_criterion = torch.nn.KLDivLoss(reduction="sum", log_target=False)
 
     train_losses, val_losses = [], []
     train_accuracies, val_accuracies = [], []
 
     for epoch in range(1, args.num_epochs + 1):
-        batch_acc = []
-        cummulative_loss = 0.
-        model.train()
-        for pc_batch in train_loader:  # TODO - understand loss logic
-            _, model_features, labels_ = pc_batch
-            model_features, labels_ = model_features.to(device), labels.to(device)
-            shape = model_features.shape
-            model_features = torch.reshape(model_features, (-1, shape[-2], shape[-1]))
-            with torch.autograd:
-                if one_label_per_model:
-                    labels = torch.reshape(torch.T(torch.stack((labels_,) * args.num_walks)), (-1,))  # TODO - validate
-                    f, probabilities = proxy_model(model_features, train=True, classify=False)
-                    predictions = probabilities.argmax(dim=1)
-                    confidence = probabilities.max(dim=1).values
-                else:
-                    labels = torch.reshape(labels_, (-1, shape[-2]))
-                    skip = args.min_seq_len
-                    f, predictions = proxy_model(model_features)[:, skip:]
-                    labels = labels[:, skip + 1:]
-                if args.train_loss == ['manifold_CE']:  # TODO - check about this param (and condition in general)
-                    labels = labels_to_onehot(labels_tensor=labels, num_classes=args.num_classes)
-                    loss = criterion(labels, predictions)
-                else:
-                    loss = proxy_train_loss(labels, predictions)
-                cummulative_loss += loss  # TODO - not sure if necessary, since reduction was set to "sum"
+        train_loss, train_accuracy = _train()
+        val_loss, val_accuracy = _val()
 
-            loss.backward()
-            optimizer.step()
-            lr_scheduler.step()
-
-            acc = train_acc(labels, predictions)
-            batch_acc.append(acc)
-
-        train_losses.append(cummulative_loss)
-        train_accuracies.append(np.mean(batch_acc))
-
-        val_loss, val_accuracy = val()
-
+        train_losses.append(train_loss)
+        train_accuracies.append(train_accuracy)
         val_accuracies.append(val_accuracy)
         val_losses.append(val_loss)
     return train_losses, val_losses, train_accuracies, val_accuracies

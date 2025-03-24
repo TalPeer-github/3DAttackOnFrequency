@@ -1,3 +1,5 @@
+# Ignore for now
+
 A random walk is a random process in the mathematical
 space. It describes a path consisting of a succession of random
 steps in the mathematical space.
