@@ -25,24 +25,55 @@ def save_traj_as_npz(file_name, model_features, label, save_path):
         model_id=file_name
     )
 
-def generate_random_walks(vertices, num_walks, seq_len, k_neighbors):
-    """ Generate multiple random walks using k-NN """
-    tree = KDTree(vertices)
-    walks = []
+import numpy as np
+import torch
+from scipy.spatial import KDTree
 
+def generate_random_walks(vertices, num_walks=32, seq_len=256, k_neighbors=8):
+    """
+    Generate random walks over the point cloud.
+
+    Args:
+        vertices (np.ndarray): Array of shape (N, 3) representing the point cloud.
+        num_walks (int): Number of random walks to generate.
+        seq_len (int): Length of each walk (number of steps).
+        k_neighbors (int): Number of nearest neighbors to consider during walk.
+
+    Returns:
+        torch.Tensor: Random walks of shape (num_walks, seq_len, 3)
+    """
+    kd_tree = KDTree(vertices)
+    n_vertices = len(vertices)
+
+    total_walks = []
     for _ in range(num_walks):
-        start_idx = np.random.randint(len(vertices))
-        seq = [start_idx]
+        # Step 1: Start at a random point
+        start_point = np.random.randint(0, n_vertices)
+        walk_indices = [start_point]
+        visited = set(walk_indices)
 
         for _ in range(seq_len - 1):
-            neighbors = tree.query(vertices[start_idx], k=k_neighbors)[1]
-            next_idx = random.choice(neighbors)
-            seq.append(next_idx)
-            start_idx = next_idx
+            current_point = vertices[walk_indices[-1]]
+            _, neighbors = kd_tree.query(current_point, k=k_neighbors * 2)
 
-        walks.append(vertices[seq])
+            # Filter out visited
+            unvisited = [idx for idx in neighbors if idx not in visited]
 
-    return np.array(walks)  # Shape: (num_walks, seq_len, 3)
+            if unvisited:
+                next_point = np.random.choice(unvisited)
+            else:
+                next_point = np.random.randint(0, n_vertices)
+                visited = set()  # Reset visited if stuck
+
+            walk_indices.append(next_point)
+            visited.add(next_point)
+
+        walk_coords = vertices[walk_indices]  # shape (seq_len, 3)
+        total_walks.append(torch.tensor(walk_coords, dtype=torch.float32))
+
+    total_walks = torch.stack(total_walks)  # shape (num_walks, seq_len, 3)
+    return total_walks
+
 
 def generate_walks(dataset_path, save_path):
     """ Loads data, generates walks, and saves them """
@@ -63,7 +94,7 @@ def generate_walks(dataset_path, save_path):
         )
 
         save_traj_as_npz(file_name[0], walks, label, save_path)
-
+    
     print(f"Walks saved successfully to {save_path}")
 
 if __name__ == "__main__":

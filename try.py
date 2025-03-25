@@ -13,7 +13,7 @@ for vertices, labels, model_ids in raw_dataloader:
     break  # Only print first batch
 
 
-walks_dataset = WalksDataset("/home/cohen-idan/finalproj/Preprocessing/pre_created_walks/train")
+walks_dataset = WalksDataset("/home/cohen-idan/finalproj/Preprocessing/pre_created_walks/test")
 walks_dataloader = DataLoader(walks_dataset, batch_size=4, shuffle=True)
 for walks, labels, model_ids in walks_dataloader:
     print("Walks Dataset:")

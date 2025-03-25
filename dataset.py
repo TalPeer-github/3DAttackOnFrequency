@@ -136,6 +136,7 @@ class WalksDataset(Dataset):
             model_id = filename.split("__")[-1]  # Extract airplane_0001
             self.id_to_index[model_id] = idx
 
+        #print(f"Keys: {list(self.id_to_index.keys())}")
         if not self.files:
             raise ValueError(f"No _traj.npz files found in {dataset_path}")
 
@@ -165,6 +166,7 @@ class WalksDataset(Dataset):
         return model_features, label, model_id
     
     def get_by_model_id(self, model_id):
-        if model_id not in self.id_to_index.keys():
+        print(f"Model ID: {model_id}")
+        if model_id not in list(self.id_to_index.keys()):
             raise ValueError(f"[ERROR] model_id {model_id} not found in WalksDataset.")
         return self[self.id_to_index[model_id]]

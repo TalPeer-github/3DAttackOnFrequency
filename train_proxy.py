@@ -138,7 +138,8 @@ def start_train(cfg, args):
 
 
 def main():
-    print("[INFO] Loading configuration and starting training...")
+    print("[INFO] Starting training for proxy network.")
+    print("[INFO] Loading configuration...")
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="configs/proxy_params.json")
     cli_args = parser.parse_args()

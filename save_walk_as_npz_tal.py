@@ -47,62 +47,70 @@ def generate_random_walks_prev(vertices, num_walks, seq_len, k_neighbors):
     return np.array(walks)  # Shape: (num_walks, seq_len, 3)
 
 
+from scipy.spatial import KDTree
+import numpy as np
+import torch
+
 def generate_random_walks(vertices, num_walks=1, seq_len=10, k_neighbors=8):
     """
-    for an input set S_i we generate the walk W_ij of length l as follows:
-    1. the walk origin point, p0, is randmoly selected from the set S_i.
-    2. point are iteratively added to the walk by selecting random point from the set of k-nearest neighbors of the last
-        point in the sequence (exluding neighbors who were added at an earlier stage)
-    3.  In the rare case where all k nearest neighbors were already added to the walk, a new
-        random un-visited point is chosen and the walk generation proceeds as before.
+    Generate random walks over the point cloud `vertices`.
+    
+    Each walk starts at a random vertex and proceeds by selecting from the k-nearest
+    unvisited neighbors. If no unvisited neighbors are available, a jump to a new unvisited
+    vertex is made.
+    
+    Args:
+        vertices (np.ndarray): Array of shape (N, 3), raw point cloud coordinates.
+        num_walks (int): Number of walks to generate.
+        seq_len (int): Number of steps in each walk.
+        k_neighbors (int): Number of neighbors to sample from at each step.
+    
+    Returns:
+        torch.Tensor: Random walks of shape (num_walks, seq_len+1, 3)
     """
     kd_tree = KDTree(vertices)
     n_vertices = len(vertices)
 
     total_walks = []
-    optional_starts = list(range(0, n_vertices))
+    optional_starts = list(range(n_vertices))
 
-    for i in range(num_walks):
-
+    for _ in range(num_walks):
         start_point = np.random.choice(optional_starts)
         optional_starts.remove(start_point)
 
-        walk = np.zeros((seq_len + 1,), dtype=np.int32) - 1
+        walk = np.full((seq_len,), -1, dtype=np.int32)
         walk[0] = start_point
 
         jumps = np.zeros((seq_len + 1,), dtype=bool)
 
-        visited = np.zeros((n_vertices + 1,), dtype=bool)
+        visited = np.zeros(n_vertices + 1, dtype=bool)
         visited[-1] = True
         visited[start_point] = True
 
         for walk_step in range(1, seq_len + 1):
             current_point = vertices[walk[walk_step - 1]]
-            distances, neighbors = kd_tree.query(x=current_point, k=k_neighbors * 2)
-            neighbors_to_consider = []
-            total_neighbors = 0
-            for neigboor in neighbors:
-                if not visited[neigboor]:
-                    total_neighbors += 1
-                    neighbors_to_consider.append(neigboor)
-                    if total_neighbors == k_neighbors:
-                        break
-            if len(neighbors_to_consider):
-                random_point = np.random.choice(neighbors_to_consider)
-                walk[walk_step] = random_point
+            distances, neighbors = kd_tree.query(current_point, k=k_neighbors * 2)
+            neighbors = np.atleast_1d(neighbors)
+
+            neighbors_to_consider = [n for n in neighbors if not visited[n]]
+            if neighbors_to_consider:
+                chosen = np.random.choice(neighbors_to_consider[:k_neighbors])
+                walk[walk_step] = chosen
                 jumps[walk_step] = False
             else:
-                walk[walk_step] = np.random.choice(optional_starts)
+                new_point = np.random.choice([i for i in range(n_vertices) if not visited[i]])
+                walk[walk_step] = new_point
                 jumps[walk_step] = True
-                visited = np.zeros((n_vertices + 1,), dtype=bool)
+                visited = np.zeros(n_vertices + 1, dtype=bool)
                 visited[-1] = True
+
             visited[walk[walk_step]] = True
 
-        walk_pcs = pc[torch.tensor(walk[:walks_len])]
-        total_walks.append(walk_pcs)
-        
-    total_walks = torch.stack((total_walks))
-    return total_walks
+        walk_coords = vertices[walk]  # shape: (seq_len+1, 3)
+        total_walks.append(torch.tensor(walk_coords, dtype=torch.float32))
+
+    return torch.stack(total_walks)  # shape: (num_walks, seq_len+1, 3)
+
 
 
 def generate_walks(dataset_path, save_path):
@@ -123,8 +131,10 @@ def generate_walks(dataset_path, save_path):
             k_neighbors=params["k_neighbors"]
         )
 
+        print(f"File name: {file_name}")
         save_traj_as_npz(file_name[0], walks, label, save_path)
-
+        break
+    
     print(f"Walks saved successfully to {save_path}")
 
 
@@ -140,4 +150,3 @@ if __name__ == "__main__":
 
     generate_walks(dataset_path, save_path)
     print(f"[{datetime.now()}] Ending process save_walk_as_npz...")
-    
