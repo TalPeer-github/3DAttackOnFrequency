@@ -149,8 +149,10 @@ class RnnWalkNet(RnnWalkBase):
         x, _ = self._gru3(x)
 
         f = x[:, -1, :]
+        #print(f"f shape: {f.shape}")
         x = self._fc_last(f)
+        #print(f"x shape: {x.shape}")
         if classify:
-            return F.softmax(x, dim=-1)
+            return F.softmax(x[1], dim=-1)
         else:
             return f, x

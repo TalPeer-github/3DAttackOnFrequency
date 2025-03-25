@@ -25,7 +25,8 @@ class PointCloudDataset(Dataset):
         self.augment = augment  # Enable or disable augmentation
         self.id_to_index = {}  # model_id → index
         for i, file in enumerate(self.files):
-            model_id = os.path.basename(file).replace(".npz", "").replace("_traj", "")
+            filename = os.path.basename(file).replace(".npz", "")  # e.g., train__5000__airplane__airplane_0001
+            model_id = filename.split("__")[-1]  # Extracts airplane_0001
             self.id_to_index[model_id] = i
 
     def __len__(self):
@@ -49,7 +50,7 @@ class PointCloudDataset(Dataset):
 
         vertices = torch.tensor(data["vertices"], dtype=torch.float32)  # (5000, 3)
         label = torch.tensor(data["label"], dtype=torch.long)  # Integer label
-        model_id = os.path.basename(file_path).replace(".npz", "")  # Extract model identifier
+        model_id = os.path.basename(file_path).replace(".npz", "").split("__")[-1]  # airplane_0001
 
         # Normalize point cloud
         vertices = self.normalize_point_cloud(vertices)
@@ -131,7 +132,8 @@ class WalksDataset(Dataset):
         ]
         self.id_to_index = {}
         for idx, path in enumerate(self.files):
-            model_id = os.path.basename(path).replace("_traj.npz", "")
+            filename = os.path.basename(path).replace("_traj.npz", "")  # e.g., test__5000__airplane__airplane_0001
+            model_id = filename.split("__")[-1]  # Extract airplane_0001
             self.id_to_index[model_id] = idx
 
         if not self.files:
@@ -158,11 +160,11 @@ class WalksDataset(Dataset):
         
         model_features = torch.tensor(data["model_features"], dtype=torch.float32)  # (num_walks, seq_len, 3)
         label = torch.tensor(data["label"], dtype=torch.long)  # Integer label
-        model_id = os.path.basename(file_path).replace("_traj.npz", "")  # Extract model identifier
+        model_id = os.path.basename(file_path).replace("_traj.npz", "").split("__")[-1]  # airplane_0001
 
         return model_features, label, model_id
     
     def get_by_model_id(self, model_id):
-        if model_id not in self.id_to_index:
+        if model_id not in self.id_to_index.keys():
             raise ValueError(f"[ERROR] model_id {model_id} not found in WalksDataset.")
         return self[self.id_to_index[model_id]]

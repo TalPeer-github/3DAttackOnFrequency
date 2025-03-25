@@ -98,9 +98,10 @@ def generate_random_walks(vertices, num_walks=1, seq_len=10, k_neighbors=8):
                 visited[-1] = True
             visited[walk[walk_step]] = True
 
-        total_walks.append(walk)
-
-    total_walks = np.array(total_walks)
+        walk_pcs = pc[torch.tensor(walk[:walks_len])]
+        total_walks.append(walk_pcs)
+        
+    total_walks = torch.stack((total_walks))
     return total_walks
 
 
@@ -139,3 +140,4 @@ if __name__ == "__main__":
 
     generate_walks(dataset_path, save_path)
     print(f"[{datetime.now()}] Ending process save_walk_as_npz...")
+    

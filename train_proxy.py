@@ -92,8 +92,6 @@ def start_train(cfg, args):
 
         with torch.no_grad():
             for walk_features, labels_, _ in pbar:
-                print(walk_features.shape)
-                print(labels.shape)
                 walk_features, labels_ = walk_features.to(device), labels_.to(device)
                 shape = walk_features.shape
                 batch_size, num_walks, walk_len = shape[:3]

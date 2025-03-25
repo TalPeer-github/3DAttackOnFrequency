@@ -54,6 +54,7 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, output_dir=None):
     assert walk_id == pc_id == model_id, f"Mismatch in IDs: {walk_id}, {pc_id}, {model_id}"
 
     walks = walks.to(device).requires_grad_(True)
+    num_walks = walks.shape[0]
     label = label_tensor.item()
     pc_data = {"vertices": vertices.numpy()}  # For compatibility with old structure
 
@@ -77,22 +78,21 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, output_dir=None):
         features = walks[:, :, :3].to(torch.float32).to(device).requires_grad_(True)
         vertics_idx = torch.arange(num_vertices)[:features.shape[1]].cpu().numpy()
 
-        with torch.autograd:
-            prediction = model(features, classify=True, training=False)
-            attack = -1 * w * kl_objective(one_hot, prediction)
+        #with torch.autograd:
+        _, logits = model(features, classify=False, training=False)
+        prediction = F.softmax(logits[1], dim=-1)
+        source_prediction = prediction.detach().cpu().numpy()[label]
 
-        gradients = torch.autograd.grad(outputs=attack, inputs=features,
-                                        grad_outputs=torch.ones_like(prediction), retain_graph=True)[0]
-
-        prediction = prediction / cfg.num_walks
-        source_prediction = prediction.detach().cpu().numpy()[cfg.source_label]
-
-        attack.backward(features)  # Kept as-is (even if redundant)
+        attack = -1 * w * kl_objective(prediction.log(), one_hot)
+        gradients = torch.autograd.grad(outputs=attack, inputs=features, retain_graph=True)[0]
+        print(f"Mean gradient norm: {gradients.norm()}")    
+        #gradients = torch.autograd.grad(outputs=attack, inputs=features,
+        #                                grad_outputs=torch.ones_like(prediction), retain_graph=True)[0]
 
         attacked_features = features + gradients
         attack_prediction = model(attacked_features, classify=True, training=False)
-        attack_prediction = attack_prediction / cfg.num_walks
-        prediction_abs_diff = abs(source_prediction - attack_prediction)
+        attack_prediction = attack_prediction / num_walks
+        prediction_abs_diff = abs(source_prediction - attack_prediction[label].item())
 
         if prediction_abs_diff > cfg.max_label_diff:
             ratio = cfg.max_label_diff / prediction_abs_diff
@@ -117,7 +117,7 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, output_dir=None):
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
         out_path = os.path.join(output_dir, f"{model_id}_attacked.npz")
-        np.savez(out_path, model_features=walks.cpu().numpy(), label=label, model_id=model_id)
+        np.savez(out_path, model_features=walks.detach().cpu().numpy(), label=label, model_id=model_id)
         print(f"Saved attacked walk to: {out_path}")
 
 
@@ -132,6 +132,7 @@ if __name__ == "__main__":
     with open(args.config, "r") as f:
         cfg_dict = json.load(f)
     cfg = SimpleNamespace(**cfg_dict)
+    
     walk_dataset = WalksDataset(cfg.walk_npz_root)
     pc_dataset = PointCloudDataset(cfg.original_pc_root)
     attack_single_pc(cfg, args.id, walk_dataset, pc_dataset, output_dir=args.output_dir)
