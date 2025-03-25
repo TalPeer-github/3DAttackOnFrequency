@@ -78,15 +78,25 @@ class RnnWalkBase(nn.Module):
 
 
 
+
 class RnnWalkNet(RnnWalkBase):
+    """
+    Given a random walk that consists of vertics (3D coordinates) along the mesh, the data is aggregated as follows:
+        1. 3 FC layers upscale each vertex into 256 dimentions (64 -> 128 -> 256)
+        2. 3 GRU layers which aggragates the information of the vertics by "remembering" the walk history.
+        3. 2 (for now) FC layers for derive the prediction function of the imitated network (CloudWalker).
+        The imitating network requires the full probabilities vectors of CloudWalker (or any network we wish to imitate)
+        and aim to measure a distance between the probability spaces of the networks (hence using KLD).
+
+    """
+
+    # TODO - handle optimizer settings
     def __init__(self, params, classes, net_input_dim, model_fn=None, model_must_be_load=False, optimizer=None):
         if params.layer_sizes is None:
-            self._layer_sizes = {
-                'fc1': 64, 'fc2': 128, 'fc3': 256,
-                'gru1': 1024, 'gru2': 1024, 'gru3': 512,
-                'fc4': 512,
-                'fc5': 128  # not used directly in current architecture
-            }
+            self._layer_sizes = {'fc1': 64, 'fc2': 128, 'fc3': 256,
+                                 'gru1': 1024, 'gru2': 1024, 'gru3': 512,
+                                 'fc4': 512,
+                                 'fc5': 128}
         else:
             self._layer_sizes = params.layer_sizes
 
@@ -95,7 +105,6 @@ class RnnWalkNet(RnnWalkBase):
     def _init_layers(self):
         self._use_norm_layer = self._params.use_norm_layer is not None
 
-        # Normalization layers
         if self._params.use_norm_layer == 'InstanceNorm':
             self._norm1 = nn.InstanceNorm1d(self._layer_sizes['fc2'])
             self._norm2 = nn.InstanceNorm1d(self._layer_sizes['fc3'])
@@ -104,46 +113,44 @@ class RnnWalkNet(RnnWalkBase):
             self._norm1 = nn.BatchNorm1d(self._layer_sizes['fc2'])
             self._norm2 = nn.BatchNorm1d(self._layer_sizes['fc3'])
             self._norm3 = nn.BatchNorm1d(self._layer_sizes['fc4'])
-
-        # Fully connected layers
-        self._fc1 = nn.Linear(3, self._layer_sizes['fc2'])  # Input: 3D point
+        
+        self._input_project = nn.Linear(3, self._layer_sizes['fc1'])  # 3 → 64
+        self._fc1 = nn.Linear(self._layer_sizes['fc1'], self._layer_sizes['fc2'])
         self._fc2 = nn.Linear(self._layer_sizes['fc2'], self._layer_sizes['fc3'])
         self._fc3 = nn.Linear(self._layer_sizes['fc3'], self._layer_sizes['fc4'])
 
-        # GRU layers
         self._gru1 = nn.GRU(self._layer_sizes['fc4'] + 3, self._layer_sizes['gru1'], batch_first=True)
         self._gru2 = nn.GRU(self._layer_sizes['gru1'], self._layer_sizes['gru2'], batch_first=True)
         self._gru3 = nn.GRU(self._layer_sizes['gru2'], self._layer_sizes['gru3'], batch_first=True)
 
-        # Final classifier
         self._fc_last = nn.Linear(self._layer_sizes['gru3'], self._classes)
 
-    def forward(self, model_features, classify=True):
-        # FC layers
-        x = self._fc1(model_features)
+    def forward(self, model_features, classify=False, training=True):
+        x = self._input_project(model_features)                # (B, L, 64)
+        x = self._fc1(x)                                       # (B, L, 128)
         if self._use_norm_layer:
             x = self._norm1(x.transpose(1, 2)).transpose(1, 2)
-        x = F.relu_(x)
+        x = F.relu(x)
 
-        x = self._fc2(x)
+        x = self._fc2(x)                                       # (B, L, 256)
         if self._use_norm_layer:
             x = self._norm2(x.transpose(1, 2)).transpose(1, 2)
-        x = F.relu_(x)
+        x = F.relu(x)
 
-        x = self._fc3(x)
+        x = self._fc3(x)                                       # (B, L, 512)
         if self._use_norm_layer:
             x = self._norm3(x.transpose(1, 2)).transpose(1, 2)
-        x = F.relu_(x)
+        x = F.relu(x)
 
-        # Concatenate original coordinates with embeddings
+
         x = torch.cat([model_features[:, :, :3], x], dim=-1)
-
-        # GRU layers
         x, _ = self._gru1(x)
         x, _ = self._gru2(x)
         x, _ = self._gru3(x)
 
-        f = x[:, -1, :]  # Final time-step
+        f = x[:, -1, :]
         x = self._fc_last(f)
-
-        return x  # Return raw logits (softmax applied in loss)
+        if classify:
+            return F.softmax(x, dim=-1)
+        else:
+            return f, x

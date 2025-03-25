@@ -77,6 +77,7 @@ def attack_single_pc(cfg, model_id, output_dir=None):
 
         # Gradient step
         walks = walks + step_size * grad.sign()
+        # walks = subset of points from point cloud object. 
         walks = walks.detach().clone().requires_grad_(True)
 
         # Re-evaluate
