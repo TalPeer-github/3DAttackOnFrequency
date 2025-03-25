@@ -19,14 +19,20 @@ def lr_scaling(x, args):
     x_th = 500e3 / args.scheduler_step_size
     return 1.0 if x < x_th else 0.5
 
+def custom_collate_fn(batch):
+    walks, labels, ids = zip(*batch)  # list of Tensors and strings
+
+    walks_tensor = torch.stack(walks)   # Assumes all walks have same shape
+    labels_tensor = torch.tensor(labels, dtype=torch.long)
+    return walks_tensor, labels_tensor, list(ids)
 
 def start_train(cfg, args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     train_dataset = WalksDataset(cfg.train_walk_npz_path)
     val_dataset = WalksDataset(cfg.test_walk_npz_path)
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=2)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=2)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=2, collate_fn=custom_collate_fn)
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=2, collate_fn=custom_collate_fn)
 
     proxy_model = RnnWalkNet(cfg, cfg.num_classes, net_input_dim=3).to(device)
     optimizer = torch.optim.Adam(proxy_model.parameters(), lr=args.lr, betas=args.betas, weight_decay=args.weight_decay)
@@ -86,6 +92,8 @@ def start_train(cfg, args):
 
         with torch.no_grad():
             for walk_features, labels_, _ in pbar:
+                print(walk_features.shape)
+                print(labels.shape)
                 walk_features, labels_ = walk_features.to(device), labels_.to(device)
                 shape = walk_features.shape
                 batch_size, num_walks, walk_len = shape[:3]
@@ -125,7 +133,7 @@ def start_train(cfg, args):
         val_losses.append(val_loss)
         val_accuracies.append(val_accuracy)
 
-        if epoch % 5 == 0:
+        if epoch % 1 == 0: # after testing - change 1 to 5 so we save every 5 epochs. 
             proxy_model.save_weights(cfg.logdir, step=epoch, keep=True, optimizer=optimizer)
 
     return train_losses, val_losses, train_accuracies, val_accuracies

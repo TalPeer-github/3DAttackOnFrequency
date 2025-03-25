@@ -3,8 +3,8 @@ import json
 import argparse
 import re
 import numpy as np
-from attack_single_pc import attack_single_pc
-
+from Preprocessing.attack_single_pc_old import attack_single_pc
+from dataset import PointCloudDataset, WalksDataset
 
 # CLASS LABELS from ModelNet40
 modelnet40_labels = [
@@ -20,7 +20,8 @@ def attack_all_walks(config):
 
     dataset_root = config["walk_npz_root"]
     output_root = config.get("output_dir", "attacks")
-
+    walk_dataset = WalksDataset(cfg.walk_npz_root)
+    pc_dataset = PointCloudDataset(cfg.original_pc_root)
     for label_idx, class_name in enumerate(modelnet40_labels):
         config["source_label"] = label_idx
         class_folder = os.path.join(dataset_root)
@@ -36,7 +37,7 @@ def attack_all_walks(config):
 
             print(f"\n[Attacking Class: {class_name} (label {label_idx}) | Model ID: {model_id}")
             try:
-                attack_single_pc(config=config, model_id=model_id, output_dir=output_root)
+                attack_single_pc(config=config, model_id=model_id, walk_dataset=walk_dataset, pc_dataset=pc_dataset, output_dir=output_root)
             except Exception as e:
                 print(f"Failed to attack {model_id}: {e}")
                 continue

@@ -2,9 +2,8 @@
     "train_path": "datasets_processed/modelnet40_normal_resampled/train",
     "test_path": "datasets_processed/modelnet40_normal_resampled/test",
     "save_path": "pre_created_walks",
-    "seq_len": 600,
+    "seq_len": 256,
     "batch_size": 1,
-    "num_epochs": 600,
     "num_walks_per_sample": 32,
-    "k_neighbors": 10
+    "k_neighbors": 8
 }

@@ -7,6 +7,7 @@ import json
 import argparse
 from scipy.spatial import KDTree
 import random
+from datetime import datetime
 
 # Load configuration
 with open("configs/walks_creating.json", "r") as f:
@@ -66,6 +67,7 @@ def generate_walks(dataset_path, save_path):
     print(f"Walks saved successfully to {save_path}")
 
 if __name__ == "__main__":
+    print(f"[{datetime.now()}] Starting process save_walk_as_npz...")
     parser = argparse.ArgumentParser(description="Generate random walks for ModelNet40")
     parser.add_argument("--dataset", type=str, choices=["train", "test"], required=True, help="Dataset to process (train/test)")
     args = parser.parse_args()
@@ -74,3 +76,4 @@ if __name__ == "__main__":
     save_path = os.path.join(params["save_path"], args.dataset)
 
     generate_walks(dataset_path, save_path)
+    print(f"[{datetime.now()}] Ending process save_walk_as_npz...")

@@ -55,7 +55,7 @@ class RnnWalkBase(nn.Module):
 
     def load_weights(self, file_path=None):
         if file_path and file_path.endswith('.pth'):
-            checkpoint = torch.load(file_path, map_location=self.device)
+            checkpoint = torch.load(file_path, map_location=self.device, weights_only=True)
             self.load_state_dict(checkpoint["model"])
             print(f"Loaded weights from {file_path}")
         elif os.path.exists(os.path.join(self.checkpoint_path, 'checkpoint.pth')):

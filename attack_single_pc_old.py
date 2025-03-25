@@ -43,7 +43,7 @@ def load_walk_npz_by_id(model_id, dataset_root):
 
 
 
-def attack_single_pc(cfg, model_id, output_dir=None):
+def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, output_dir=None):
     print(f"[INFO] Attacking: {model_id}")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = define_network_and_its_params(cfg).to(device)
@@ -54,20 +54,22 @@ def attack_single_pc(cfg, model_id, output_dir=None):
     walks = torch.tensor(data["model_features"], dtype=torch.float32).to(device)  # (N, T, 3)
     label = int(data["label"])
     walks.requires_grad = True
-
     # Attack params
     w = cfg.attacking_weight
     step_size = cfg.step_size
     max_iter = cfg.max_iter
     max_label_diff = cfg.max_label_diff
+    
+    kl_objective = torch.nn.KLDivLoss(reduction="sum")
 
     # One-hot true label
     one_hot = F.one_hot(torch.tensor(label), num_classes=cfg.num_classes).float().to(device)
+
     num_wrong = 0
 
     for step in range(max_iter):
         model.zero_grad()
-        logits = model(walks)  # (N, C)
+        _, logits = model(walks)  # (N, C)
         probs = F.softmax(logits, dim=1)
         avg_pred = probs.mean(dim=0)  # (C,)
 
@@ -81,7 +83,7 @@ def attack_single_pc(cfg, model_id, output_dir=None):
         walks = walks.detach().clone().requires_grad_(True)
 
         # Re-evaluate
-        new_logits = model(walks)
+        _, new_logits = model(walks)
         new_probs = F.softmax(new_logits, dim=1).mean(dim=0)
         pred_class = torch.argmax(new_probs).item()
         confidence = new_probs[label].item()

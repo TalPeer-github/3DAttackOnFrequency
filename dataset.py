@@ -23,6 +23,10 @@ class PointCloudDataset(Dataset):
         """
         self.files = sorted(glob.glob(os.path.join(dataset_path, "*.npz")))
         self.augment = augment  # Enable or disable augmentation
+        self.id_to_index = {}  # model_id → index
+        for i, file in enumerate(self.files):
+            model_id = os.path.basename(file).replace(".npz", "").replace("_traj", "")
+            self.id_to_index[model_id] = i
 
     def __len__(self):
         return len(self.files)
@@ -55,6 +59,12 @@ class PointCloudDataset(Dataset):
             vertices = self.apply_augmentation(vertices)
 
         return vertices, label, model_id
+
+    def get_by_model_id(self, model_id):
+        idx = self.id_to_index.get(model_id)
+        if idx is None:
+            raise ValueError(f"Model ID {model_id} not found in dataset.")
+        return self[idx]
 
     def normalize_point_cloud(self, vertices):
         """Normalize point cloud to unit sphere."""
@@ -119,6 +129,10 @@ class WalksDataset(Dataset):
             for folder in self.folders
             if os.path.exists(os.path.join(folder, os.path.basename(folder) + "_traj.npz"))
         ]
+        self.id_to_index = {}
+        for idx, path in enumerate(self.files):
+            model_id = os.path.basename(path).replace("_traj.npz", "")
+            self.id_to_index[model_id] = idx
 
         if not self.files:
             raise ValueError(f"No _traj.npz files found in {dataset_path}")
@@ -147,3 +161,8 @@ class WalksDataset(Dataset):
         model_id = os.path.basename(file_path).replace("_traj.npz", "")  # Extract model identifier
 
         return model_features, label, model_id
+    
+    def get_by_model_id(self, model_id):
+        if model_id not in self.id_to_index:
+            raise ValueError(f"[ERROR] model_id {model_id} not found in WalksDataset.")
+        return self[self.id_to_index[model_id]]
