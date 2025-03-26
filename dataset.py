@@ -138,21 +138,16 @@ class WalksDataset(Dataset):
         Args:
             dataset_path (str): Path to the directory containing precomputed walks.
         """
-        self.folders = sorted(glob.glob(os.path.join(dataset_path, "*")))
         # Find all subdirectories inside dataset_path
-        if categories:
-            self.folders = [
-                folder for folder in self.folders
-                if any(os.path.basename(folder).startswith(cat + "_") for cat in categories)
-            ]
-
-        # Load valid _traj.npz files only
+        self.folders = sorted(glob.glob(os.path.join(dataset_path, "*")))
+        print(self.folders)
+        
+        # Collect all _traj.npz files inside those folders
         self.files = [
             os.path.join(folder, os.path.basename(folder) + "_traj.npz")
             for folder in self.folders
             if os.path.exists(os.path.join(folder, os.path.basename(folder) + "_traj.npz"))
         ]
-        
         self.id_to_index = {}
         for idx, path in enumerate(self.files):
             filename = os.path.basename(path).replace("_traj.npz", "")  # e.g., test__5000__airplane__airplane_0001
