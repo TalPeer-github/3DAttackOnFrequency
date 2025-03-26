@@ -5,7 +5,15 @@ import torch
 from torch.utils.data import Dataset
 from scipy.spatial import KDTree
 import random
+import json
 
+walks_config_path = os.path.join("configs", "walks_creating.json")
+if os.path.exists(walks_config_path):
+    with open(walks_config_path, "r") as f:
+        _walks_config = json.load(f)
+    categories = _walks_config.get("categories", None)
+else:
+    categories = None
 
 # ----------------------- POINT CLOUD DATASET -----------------------
 
@@ -21,8 +29,17 @@ class PointCloudDataset(Dataset):
             dataset_path (str): Path to the directory containing .npz raw point cloud files.
             augment (bool): Whether to apply data augmentation.
         """
-        self.files = sorted(glob.glob(os.path.join(dataset_path, "*.npz")))
-        self.augment = augment  # Enable or disable augmentation
+        all_files = sorted(glob.glob(os.path.join(dataset_path, "*.npz")))
+        if categories:
+            print(categories)
+            self.files = [
+                f for f in all_files
+                if any(os.path.basename(f).split("__")[-1].startswith(cat + "_") for cat in categories)
+            ]
+        else:
+            self.files = all_files
+            
+        self.augment = augment  #Enable or disable augmentation
         self.id_to_index = {}  # model_id → index
         for i, file in enumerate(self.files):
             filename = os.path.basename(file).replace(".npz", "")  # e.g., train__5000__airplane__airplane_0001
@@ -121,15 +138,21 @@ class WalksDataset(Dataset):
         Args:
             dataset_path (str): Path to the directory containing precomputed walks.
         """
-        # Find all subdirectories inside dataset_path
         self.folders = sorted(glob.glob(os.path.join(dataset_path, "*")))
-        
-        # Collect all _traj.npz files inside those folders
+        # Find all subdirectories inside dataset_path
+        if categories:
+            self.folders = [
+                folder for folder in self.folders
+                if any(os.path.basename(folder).startswith(cat + "_") for cat in categories)
+            ]
+
+        # Load valid _traj.npz files only
         self.files = [
             os.path.join(folder, os.path.basename(folder) + "_traj.npz")
             for folder in self.folders
             if os.path.exists(os.path.join(folder, os.path.basename(folder) + "_traj.npz"))
         ]
+        
         self.id_to_index = {}
         for idx, path in enumerate(self.files):
             filename = os.path.basename(path).replace("_traj.npz", "")  # e.g., test__5000__airplane__airplane_0001

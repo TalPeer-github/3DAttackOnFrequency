@@ -105,6 +105,5 @@ if __name__ == "__main__":
 
     dataset_path = params["train_path"] if args.dataset == "train" else params["test_path"]
     save_path = os.path.join(params["save_path"], args.dataset)
-
     generate_walks(dataset_path, save_path)
     print(f"[{datetime.now()}] Ending process save_walk_as_npz...")

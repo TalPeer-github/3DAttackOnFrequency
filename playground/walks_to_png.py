@@ -6,8 +6,8 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
 # Set the correct file paths
-walks_path = "/home/cohen-idan/finalproj/Preprocessing/pre_created_walks/train__5000__airplane__airplane_0032.npz/train__5000__airplane__airplane_0032.npz_traj.npz"
-original_path = "/home/cohen-idan/finalproj/Preprocessing/datasets_processed/modelnet40_normal_resampled/train/train__5000__airplane__airplane_0032.npz" 
+walks_path = "/home/cohen-idan/finalproj/Preprocessing/pre_created_walks/train/airplane_0027/airplane_0027_traj.npz"
+original_path = "/home/cohen-idan/finalproj/Preprocessing/datasets_processed/modelnet40_normal_resampled/train/train__5000__airplane__airplane_0027.npz"
 
 # ✅ Load the generated walks file
 data = np.load(walks_path)
@@ -42,7 +42,6 @@ for i in range(walks.shape[0]):
     ax.plot(walks[i, :, 0], walks[i, :, 1], walks[i, :, 2], marker="o", linestyle="-", markersize=2, alpha=0.8, label=f"Walk {i+1}")
 
     # Labels and title
-    ax.set_title(f"Walk {i+1} on Object (Label: {label[0]})")
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")

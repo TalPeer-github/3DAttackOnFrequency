@@ -5,5 +5,6 @@
     "seq_len": 256,
     "batch_size": 1,
     "num_walks_per_sample": 32,
-    "k_neighbors": 8
+    "k_neighbors": 8,
+    "categories": ["airplane", "lamp", "car", "plant", "xbox", "guitar", "sofa", "monitor"]
 }
