@@ -131,7 +131,7 @@ def train_cloudwalker(cfg, args):
     optimizer = torch.optim.Adam(
         cloudwalker.parameters(), 
         lr=args.lr, 
-        betas=args.betas, 
+        betas=getattr(args, 'betas', [0.9, 0.999]), 
         weight_decay=args.weight_decay
     )
     
@@ -139,11 +139,11 @@ def train_cloudwalker(cfg, args):
     lr_scheduler = torch.optim.lr_scheduler.StepLR(
         optimizer=optimizer,
         step_size=args.scheduler_step_size,
-        gamma=args.scheduler_gamma
+        gamma=getattr(args, 'scheduler_gamma', 0.7)
     )
     
     # Loss function - CrossEntropyLoss as per paper for classification
-    criterion = torch.nn.CrossEntropyLoss(reduction=args.loss_reduction)
+    criterion = torch.nn.CrossEntropyLoss(reduction=getattr(args, 'loss_reduction', 'mean'))
     
     # Training metrics
     train_losses, val_losses = [], []
