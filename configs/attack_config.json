@@ -1,25 +1,22 @@
 {
-  "trained_model": "saved_checkpoints",
-  "checkpoint_path": "saved_checkpoints/checkpoint.pth",
-  "walk_npz_root": "pre_created_walks/test",
+  "checkpoint_path": "saved_checkpoints/cloudwalker/best_model.pth",
   "original_pc_root": "datasets_processed/modelnet40_normal_resampled/test",
+  "walk_npz_root": "pre_created_walks/test",
+  "attack_output_dir": "attacks/cloudwalker",
   "num_classes": 40,
-  "walk_len": 256,
-  "attacking_weight": 1.0,
-  "step_size": 0.01,
-  "max_iter": 50,
-  "max_label_diff": 0.01,
+  "attack_epsilon": 0.05,
+  "attack_step_size": 0.002,
+  "attack_iterations": 200,
+  "visualize_attacks": true,
   "use_norm_layer": "BatchNorm",
-  "output_dir": "attacks",
   "layer_sizes": {
-      "fc1": 64,
-      "fc2": 128,
-      "fc3": 256,
-      "gru1": 1024,
-      "gru2": 1024,
-      "gru3": 512,
-      "fc4": 512,
-      "fc5": 128
-  },
-"logdir": "saved_checkpoints"
+    "fc1": 128,
+    "fc2": 128,
+    "fc3": 64,
+    "gru1": 128,
+    "gru2": 128,
+    "gru3": 64,
+    "fc4": 128,
+    "fc5": 128
+  }
 }

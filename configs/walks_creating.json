@@ -1,10 +1,19 @@
 {
-    "train_path": "datasets_processed/modelnet40_normal_resampled/train",
-    "test_path": "datasets_processed/modelnet40_normal_resampled/test",
-    "save_path": "pre_created_walks",
-    "seq_len": 256,
-    "batch_size": 1,
-    "num_walks_per_sample": 32,
-    "k_neighbors": 8,
-    "categories": ["airplane", "lamp", "car", "plant", "xbox", "guitar", "sofa", "monitor"]
+  "train_path": "datasets_processed/modelnet40_normal_resampled/train",
+  "test_path": "datasets_processed/modelnet40_normal_resampled/test",
+  "save_path": "pre_created_walks",
+  "seq_len": 256,
+  "batch_size": 1,
+  "num_walks_per_sample": 32,
+  "k_neighbors": 8,
+  "categories": [
+    "airplane",
+    "lamp",
+    "car",
+    "plant",
+    "xbox",
+    "guitar",
+    "sofa",
+    "monitor"
+  ]
 }

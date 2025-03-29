@@ -1,22 +1,24 @@
 {
   "train_walk_npz_path": "pre_created_walks/train",
   "test_walk_npz_path": "pre_created_walks/test",
-  "logdir": "saved_checkpoints",
+  "logdir": "saved_checkpoints/cloudwalker",
+  "test_logdir": "temp_checkpoints/cloudwalker",
   "num_classes": 40,
   "use_norm_layer": "BatchNorm",
-
+  "dropout": 0.2,
   "args": {
     "num_epochs": 10,
-    "batch_size": 8, 
-    "lr": 0.001,
+    "batch_size": 16,
+    "lr": 0.0005,
     "betas": [0.9, 0.999],
     "weight_decay": 0.0001,
-    "base_lr": 1e-5,
-    "max_lr": 1e-3,
-    "scheduler_step_size": 2000,
-    "loss_reduction": "batchmean"
+    "scheduler_step_size": 10,
+    "scheduler_gamma": 0.7,
+    "loss_reduction": "mean",
+    "save_epochs": 5,
+    "seed": 42,
+    "num_workers": 2
   },
-
   "layer_sizes": {
     "fc1": 64,
     "fc2": 128,
@@ -27,4 +29,4 @@
     "fc4": 512,
     "fc5": 128
   }
-}
+} 

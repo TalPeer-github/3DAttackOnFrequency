@@ -140,8 +140,6 @@ class WalksDataset(Dataset):
         """
         # Find all subdirectories inside dataset_path
         self.folders = sorted(glob.glob(os.path.join(dataset_path, "*")))
-        print(self.folders)
-        
         # Collect all _traj.npz files inside those folders
         self.files = [
             os.path.join(folder, os.path.basename(folder) + "_traj.npz")
@@ -154,7 +152,6 @@ class WalksDataset(Dataset):
             model_id = filename.split("__")[-1]  # Extract airplane_0001
             self.id_to_index[model_id] = idx
 
-        #print(f"Keys: {list(self.id_to_index.keys())}")
         if not self.files:
             raise ValueError(f"No _traj.npz files found in {dataset_path}")
 
@@ -184,7 +181,6 @@ class WalksDataset(Dataset):
         return model_features, label, model_id
     
     def get_by_model_id(self, model_id):
-        print(f"Model ID: {model_id}")
         if model_id not in list(self.id_to_index.keys()):
             raise ValueError(f"[ERROR] model_id {model_id} not found in WalksDataset.")
         return self[self.id_to_index[model_id]]

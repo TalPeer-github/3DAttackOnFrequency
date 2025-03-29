@@ -71,7 +71,7 @@ def generate_random_walks(vertices, num_walks=32, seq_len=256, k_neighbors=8):
         walk_coords = vertices[walk_indices]  # shape (seq_len, 3)
         total_walks.append(torch.tensor(walk_coords, dtype=torch.float32))
 
-    total_walks = torch.stack(total_walks)  # shape (num_walks, seq_len, 3)
+    total_walks = torch.stack(total_walks)  # shape (num_walks, seq_len, 3) - 3 for x,y,z coordinates. 
     return total_walks
 
 
@@ -92,6 +92,7 @@ def generate_walks(dataset_path, save_path):
             seq_len=params["seq_len"],
             k_neighbors=params["k_neighbors"]
         )
+        
 
         save_traj_as_npz(file_name[0], walks, label, save_path)
     
