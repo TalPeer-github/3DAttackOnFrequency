@@ -84,7 +84,7 @@ def generate_walks(dataset_path, save_path):
 
     for vertices, label, file_name in dataloader:
         vertices = vertices.squeeze(0).numpy()
-        label = label.item()
+        label = label.item()  # This label is already remapped by the PointCloudDataset
 
         walks = generate_random_walks(
             vertices,
@@ -93,7 +93,6 @@ def generate_walks(dataset_path, save_path):
             k_neighbors=params["k_neighbors"]
         )
         
-
         save_traj_as_npz(file_name[0], walks, label, save_path)
     
     print(f"Walks saved successfully to {save_path}")

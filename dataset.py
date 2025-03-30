@@ -15,6 +15,9 @@ if os.path.exists(walks_config_path):
 else:
     categories = None
 
+# Create a dictionary to map category names to new consecutive indices
+category_to_idx = {category: idx for idx, category in enumerate(categories)} if categories else None
+
 # ----------------------- POINT CLOUD DATASET -----------------------
 
 class PointCloudDataset(Dataset):
@@ -66,7 +69,7 @@ class PointCloudDataset(Dataset):
         data = np.load(file_path, allow_pickle=True)
 
         vertices = torch.tensor(data["vertices"], dtype=torch.float32)  # (5000, 3)
-        label = torch.tensor(data["label"], dtype=torch.long)  # Integer label
+        orig_label = data["label"].item()  # Integer label
         model_id = os.path.basename(file_path).replace(".npz", "").split("__")[-1]  # airplane_0001
 
         # Normalize point cloud
@@ -75,6 +78,16 @@ class PointCloudDataset(Dataset):
         # Apply augmentation if enabled
         if self.augment:
             vertices = self.apply_augmentation(vertices)
+
+        # Remap label if using selected categories
+        if categories is not None:
+            category = model_id.split("_")[0]  # Extract category name from model ID
+            if category in category_to_idx:
+                label = torch.tensor(category_to_idx[category], dtype=torch.long)
+            else:
+                label = torch.tensor(orig_label, dtype=torch.long)
+        else:
+            label = torch.tensor(orig_label, dtype=torch.long)
 
         return vertices, label, model_id
 
@@ -154,6 +167,19 @@ class WalksDataset(Dataset):
 
         if not self.files:
             raise ValueError(f"No _traj.npz files found in {dataset_path}")
+        
+        # Create a mapping from original label to remapped label if using selected categories
+        self.remap_labels = categories is not None
+        if self.remap_labels:
+            self.label_map = {}
+            for file_path in self.files:
+                data = np.load(file_path, allow_pickle=True)
+                orig_label = data["label"].item()
+                model_id = os.path.basename(file_path).replace("_traj.npz", "").split("__")[-1]
+                category = model_id.split("_")[0]  # Extract category name from model ID
+                if category in category_to_idx:
+                    self.label_map[orig_label] = category_to_idx[category]
+            print(f"Created label mapping: {self.label_map}")
 
     def __len__(self):
         return len(self.files)
@@ -175,9 +201,15 @@ class WalksDataset(Dataset):
         data = np.load(file_path, allow_pickle=True)
         
         model_features = torch.tensor(data["model_features"], dtype=torch.float32)  # (num_walks, seq_len, 3)
-        label = torch.tensor(data["label"], dtype=torch.long)  # Integer label
+        orig_label = data["label"].item()
         model_id = os.path.basename(file_path).replace("_traj.npz", "").split("__")[-1]  # airplane_0001
-
+        
+        # Remap label if using selected categories
+        if self.remap_labels and orig_label in self.label_map:
+            label = torch.tensor(self.label_map[orig_label], dtype=torch.long)
+        else:
+            label = torch.tensor(orig_label, dtype=torch.long)
+        
         return model_features, label, model_id
     
     def get_by_model_id(self, model_id):

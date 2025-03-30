@@ -3,11 +3,11 @@
   "test_walk_npz_path": "pre_created_walks/test",
   "logdir": "saved_checkpoints/cloudwalker",
   "test_logdir": "temp_checkpoints/cloudwalker",
-  "num_classes": 40,
+  "num_classes": 8,
   "use_norm_layer": "BatchNorm",
   "dropout": 0.3,
   "args": {
-    "num_epochs": 50,
+    "num_epochs": 10,
     "batch_size": 16,
     "lr": 0.001,
     "betas": [0.9, 0.999],
