@@ -198,7 +198,7 @@ def train_cloudwalker(cfg, args):
             plot_training_progress(train_losses, val_losses, train_accuracies, val_accuracies, cfg.logdir)
         
         # Save model checkpoints
-        if epoch % args.save_epochs == 0:
+        if epoch % args.save_interval == 0:
             cloudwalker.save_weights(cfg.logdir, step=epoch, keep=True, optimizer=optimizer)
             print(f"[INFO] Checkpoint saved at epoch {epoch}")
             

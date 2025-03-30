@@ -255,12 +255,12 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, output_dir=None):
         
         # Update perturbation
         optimizer.step()
-        
+
         # Track metrics
         history['loss'].append(attack_loss.item())
         history['confidence'].append(confidence)
         history['prediction'].append(prediction.argmax().item())
-        
+
         # Get predictions after update
         with torch.no_grad():
             # Check if prediction has changed from original class
@@ -285,7 +285,7 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, output_dir=None):
         if attack_success and i > 2 and all(p != original_label.item() for p in history['prediction'][-3:]):
             print(f"[INFO] Early stopping at iteration {i+1} - Successfully fooled model")
             break
-    
+
     # Use best delta if available
     if attack_success and best_delta is not None:
         delta = best_delta

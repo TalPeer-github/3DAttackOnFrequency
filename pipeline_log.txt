@@ -2,3 +2,10 @@
 
 [START] Training CloudWalker model
 Start time: 2025-03-30 02:12:50
+End time: 2025-03-30 06:01:39
+Duration: 13729.56 seconds
+[DONE] Training CloudWalker model
+
+[START] Evaluating CloudWalker model
+Start time: 2025-03-30 06:01:39
+[ERROR] Evaluating CloudWalker model failed: Command '['python', 'evaluate_cloudwalker.py']' returned non-zero exit status 1.
