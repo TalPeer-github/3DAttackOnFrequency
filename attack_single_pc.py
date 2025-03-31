@@ -202,14 +202,15 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, output_dir=None):
     # Initialize perturbation on the original point cloud
     delta = torch.zeros_like(original_pc, requires_grad=True, device=device)
     
-    # Initialize optimizer for perturbation
-    optimizer = torch.optim.Adam([delta], lr=cfg.attack_step_size)
-    
     # Attack parameters
     epsilon = cfg.attack_epsilon
-    iterations = 20  # Reduced from 200 for testing
+    iterations = 50  # Reduced from 200 for testing
     required_consecutive_successes = 3  # Number of consecutive successes needed to stop
+    min_confidence_threshold = 0.7  # Minimum confidence required for successful attack
     consecutive_successes = 0  # Counter for consecutive successful predictions
+    
+    # Initialize optimizer with smaller learning rate
+    optimizer = torch.optim.Adam([delta], lr=0.001)  # Reduced from default 0.01
     
     # Attack loop variables
     best_loss = float('-inf')
@@ -239,10 +240,17 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, output_dir=None):
         # Get model prediction on perturbed walks (enable gradients for attack)
         prediction, confidence = get_model_prediction(model, perturbed_walks, device, enable_grad=True)
         
-        # Cross-entropy loss
+        # Get probability distribution
+        probs = F.softmax(prediction, dim=0)
+        
+        # Cross-entropy loss with additional diversity term
         prediction = prediction.unsqueeze(0)
         target = torch.tensor([label], device=device)
-        loss = F.cross_entropy(prediction, target)  # Regular cross-entropy (we'll maximize it)
+        ce_loss = F.cross_entropy(prediction, target)
+        
+        # Add diversity loss to encourage different probability distribution
+        diversity_loss = -torch.sum(probs * torch.log(probs + 1e-10))  # Negative entropy
+        loss = ce_loss - 0.1 * diversity_loss  # Weighted combination
         
         # Backward pass (maximize loss)
         (-loss).backward()  # Negative for maximization
@@ -256,14 +264,22 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, output_dir=None):
         history['confidence'].append(confidence)
         history['prediction'].append(current_pred)
         
-        # Check attack status
-        if current_pred != label:
-            if last_prediction != label:  # If last prediction was also wrong
+        # Check attack status with stricter criteria
+        is_different_class = current_pred != label
+        is_confident = confidence >= min_confidence_threshold
+        prob_difference = torch.abs(probs[current_pred] - probs[label]).item()
+        is_significant = prob_difference > 0.3  # Require significant probability shift
+        
+        if is_different_class and is_confident and is_significant:
+            if last_prediction == current_pred:  # Only count if prediction stays the same
                 consecutive_successes += 1
-                print(f"[SUCCESS] Model fooled! ({consecutive_successes}/{required_consecutive_successes} consecutive times)")
+                print(f"[SUCCESS] Model fooled with confidence {confidence:.4f}! "
+                      f"({consecutive_successes}/{required_consecutive_successes} consecutive times)")
+                print(f"Probability difference: {prob_difference:.4f}")
             else:
                 consecutive_successes = 1
-                print(f"[SUCCESS] Model fooled for the first time in this sequence!")
+                print(f"[SUCCESS] Model fooled for the first time with confidence {confidence:.4f}!")
+                print(f"Probability difference: {prob_difference:.4f}")
             
             if loss.item() > best_loss:  # Update best delta if loss is better
                 best_loss = loss.item()
@@ -271,21 +287,28 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, output_dir=None):
                 attack_success = True
         else:
             consecutive_successes = 0
-            print(f"[ATTEMPT] Model not fooled yet (predicted class {current_pred})")
+            if not is_different_class:
+                print(f"[ATTEMPT] Model not fooled yet (predicted class {current_pred})")
+            elif not is_confident:
+                print(f"[ATTEMPT] Model fooled but confidence too low ({confidence:.4f} < {min_confidence_threshold})")
+            else:
+                print(f"[ATTEMPT] Model fooled but probability shift too small ({prob_difference:.4f})")
         
         last_prediction = current_pred
         
-        # Print detailed progress every 10 iterations
-        if (i + 1) % 10 == 0:
+        # Print detailed progress every 5 iterations
+        if (i + 1) % 5 == 0:
             print(f"\nIteration {i+1}/{iterations}:")
             print(f"Loss: {loss.item():.4f}")
             print(f"Confidence: {confidence:.4f}")
             print(f"Current prediction: {current_pred}")
-            print(f"Perturbation magnitude: {torch.norm(delta, dim=1).mean().item():.6f}\n")
+            print(f"Perturbation magnitude: {torch.norm(delta, dim=1).mean().item():.6f}")
+            print(f"Probability distribution: {probs.detach().cpu().numpy()}\n")
         
         # Early stopping if we've fooled the model consistently
         if consecutive_successes >= required_consecutive_successes:
             print(f"\n[EARLY STOPPING] Successfully fooled model {consecutive_successes} times in a row!")
+            print(f"Final probability distribution: {probs.detach().cpu().numpy()}")
             break
 
     # Use best delta if available
