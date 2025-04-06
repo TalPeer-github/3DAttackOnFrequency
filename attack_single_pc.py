@@ -12,7 +12,7 @@ from scipy.spatial import KDTree
 from cloudwalker_arch import CloudWalkerNet
 from dataset import PointCloudDataset, WalksDataset
 from abc import ABC, abstractmethod
-from save_walk_as_npz import generate_random_walks  # Import the walk generation function
+from save_walk_as_npz import generate_random_walks_tensor  # Import the walk generation function
 import networkx as nx
 
 class PointSelectionStrategy(ABC):
@@ -43,39 +43,46 @@ class AllPointsStrategy(PointSelectionStrategy):
 
 class MSTStrategy(PointSelectionStrategy):
     def select_points(self, original_pc, walks, model, device):
-            N = original_pc.shape[0]
-            self.N = N
-            cooccur = np.zeros((N, N), dtype=np.int32)
+        # Ensure walks is on CPU and in integer numpy format
+        walks = walks.detach().cpu().numpy().astype(np.int32)
 
-            # Step 1: Build co-occurrence matrix
-            for walk in walks:
-                for i in range(len(walk)):
-                    for j in range(i + 1, len(walk)):
-                        a, b = walk[i], walk[j]
-                        cooccur[a, b] += 1
-                        cooccur[b, a] += 1
+        N = original_pc.shape[0]
+        self.N = N
+        cooccur = np.zeros((N, N), dtype=np.int32)
 
-            # Step 2: Build full graph with walk-based + high-weight fill-ins
-            G = nx.Graph()
-            for i in range(N):
-                G.add_node(i)
-                for j in range(i + 1, N):
-                    if cooccur[i, j] > 0:
-                        weight = 1.0 / (cooccur[i, j] + 1e-6)
-                    else:
-                        weight = 1e6  # VERY high weight to "force" inclusion but mark as weak
-                    G.add_edge(i, j, weight=weight)
+        # Step 1: Build co-occurrence matrix
+        for walk in walks:
+            for i in range(len(walk)):
+                for j in range(i + 1, len(walk)):
+                    a, b = walk[i], walk[j]
+                    cooccur[a, b] += 1
+                    cooccur[b, a] += 1
 
-            # Step 3: Compute MST (includes all nodes, penalizes non-walk connections)
-            mst = nx.minimum_spanning_tree(G, weight='weight')
+        # Step 2: Build full graph with walk-based + high-weight fill-ins
+        G = nx.Graph()
+        for i in range(N):
+            G.add_node(i)
+            for j in range(i + 1, N):
+                if cooccur[i, j] > 0:
+                    weight = 1.0 / (cooccur[i, j] + 1e-6)
+                else:
+                    weight = 1e6  # Penalize missing co-occurrence
+                G.add_edge(i, j, weight=weight)
 
-            # Step 4: Score nodes by degree in MST
-            degrees = dict(mst.degree())
-            point_scores = np.array([degrees.get(i, 0) for i in range(N)])
+        # Step 3: Compute MST
+        mst = nx.minimum_spanning_tree(G, weight='weight')
+        print(f"MST is {mst}")
+        # Step 4: Score by node degree in MST
+        degrees = dict(mst.degree())
+        point_scores = np.array([degrees.get(i, 0) for i in range(N)])
 
-            # Step 5: Select top-K points by centrality
-            top_indices = np.argsort(point_scores)[::-1][:self.num_points]
-            return top_indices.tolist()
+        # Step 5: Select top-K points
+        top_indices = np.argsort(point_scores)[::-1][:1000] # 20% points. 
+        point_mask = np.zeros(N, dtype=bool)
+        point_mask[top_indices] = True
+
+        return torch.tensor(point_mask, dtype=torch.bool, device=device)
+
 
 
 
@@ -88,7 +95,7 @@ def define_network_and_its_params(cfg):
         cfg.logdir = os.path.dirname(cfg.checkpoint_path)
     
     model = CloudWalkerNet(cfg, cfg.num_classes, net_input_dim=3)
-    checkpoint = torch.load(cfg.checkpoint_path, map_location="cpu")
+    checkpoint = torch.load(cfg.checkpoint_path, map_location="cpu", weights_only=True)
     model.load_state_dict(checkpoint["model"])
     model.eval()
     return model
@@ -212,8 +219,6 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, strategy, output_d
     """
     print(f"[INFO] Attacking model: {model_id}")
     print(f"[INFO] Using strategy: {strategy.__class__.__name__}")
-    
-    # Setup device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[INFO] Using device: {device}")
     
@@ -247,7 +252,7 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, strategy, output_d
     
     # Attack parameters
     epsilon = cfg.attack_epsilon
-    iterations = 50  # Reduced from 200 for testing
+    iterations = 10  # Reduced from 200 for testing
     required_consecutive_successes = 3  # Number of consecutive successes needed to stop
     min_confidence_threshold = 0.7  # Minimum confidence required for successful attack
     consecutive_successes = 0  # Counter for consecutive successful predictions
@@ -260,8 +265,6 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, strategy, output_d
     best_delta = None
     attack_success = False
     last_prediction = None
-    
-    # Track metrics
     history = {
         'loss': [],
         'confidence': [],
@@ -285,14 +288,13 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, strategy, output_d
         
         # Generate new walks for the perturbed point cloud
         # Convert to numpy for walk generation
-        perturbed_pc_np = perturbed_pc.detach().cpu().numpy()
         num_walks = original_walks.shape[0]
         seq_len = original_walks.shape[1]
-        
-        # Generate new walks
-        perturbed_walks = generate_random_walks(perturbed_pc_np, num_walks, seq_len)
-        perturbed_walks = torch.from_numpy(perturbed_walks).to(device)
-        
+
+        # Generate walks using tensor-aware function (preserves gradients)
+        walk_indices = generate_random_walks_tensor(perturbed_pc, num_walks, seq_len, k_neighbors=cfg.k_neighbors)
+        perturbed_walks = perturbed_pc[walk_indices]  # shape: [num_walks, seq_len, 3]    
+                
         # Get model prediction on perturbed walks (enable gradients for attack)
         prediction, confidence = get_model_prediction(model, perturbed_walks, device, enable_grad=True)
         
@@ -312,8 +314,9 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, strategy, output_d
         (-loss).backward()  # Negative for maximization
         
         # Zero out gradients for non-selected points
-        delta.grad[~point_mask] = 0
-        
+        with torch.no_grad():
+            delta.data[~point_mask] = 0
+
         # Update perturbation
         optimizer.step()
         
@@ -377,9 +380,10 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, strategy, output_d
     # Final evaluation with new walks
     with torch.no_grad():
         perturbed_pc = original_pc + delta
-        perturbed_pc_np = perturbed_pc.detach().cpu().numpy()
-        final_walks = generate_random_walks(perturbed_pc_np, num_walks, seq_len)
-        final_walks = torch.from_numpy(final_walks).to(device)
+        final_indices = generate_random_walks_tensor(perturbed_pc, num_walks, seq_len, k_neighbors=cfg.k_neighbors)
+        final_walks = perturbed_pc[final_indices]
+
+
         final_prediction, final_confidence = get_model_prediction(model, final_walks, device, enable_grad=False)
     
     # Calculate perturbation magnitude
@@ -499,9 +503,8 @@ if __name__ == "__main__":
                         help="Path to attack configuration file")
     parser.add_argument("--id", type=str, required=False, 
                         help="Specific model ID to attack (e.g., airplane_0123)")
-    parser.add_argument("--strategy", type=str, default="all_points",
-                        choices=["all_points", "gradient_magnitude", "graph_centrality", 
-                                "mst_based", "walk_intersection", "walk_saliency"],
+    parser.add_argument("--strategy", type=str, default="mst",
+                        choices=["all_points", "mst"],
                         help="Point selection strategy to use")
     
     # Optional advanced parameters
@@ -533,6 +536,8 @@ if __name__ == "__main__":
     # Select strategy
     if args.strategy == "all_points":
         strategy = AllPointsStrategy()
+    if args.strategy == "mst":
+        strategy = MSTStrategy()
     else:
         raise NotImplementedError(f"Strategy {args.strategy} not implemented yet")
     

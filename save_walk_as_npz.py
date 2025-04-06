@@ -29,6 +29,42 @@ import numpy as np
 import torch
 from scipy.spatial import KDTree
 
+def generate_random_walks_tensor(pc_tensor, num_walks=32, seq_len=256, k_neighbors=8):
+    """
+    Pure PyTorch differentiable random walk generator.
+    
+    Args:
+        pc_tensor: (N, 3) torch tensor with gradients enabled
+        Returns: (num_walks, seq_len) LongTensor of indices into pc_tensor
+    """
+    N = pc_tensor.shape[0]
+    dists = torch.cdist(pc_tensor, pc_tensor)  # (N, N)
+    knn_indices = torch.topk(dists, k=k_neighbors + 1, largest=False).indices[:, 1:]  # skip self
+
+    walks = torch.zeros((num_walks, seq_len), dtype=torch.long, device=pc_tensor.device)
+    
+    for w in range(num_walks):
+        start = torch.randint(0, N, (1,), device=pc_tensor.device).item()
+        walk = [start]
+        visited = {start}
+
+        for _ in range(seq_len - 1):
+            neighbors = knn_indices[walk[-1]]
+            unvisited = [n.item() for n in neighbors if n.item() not in visited]
+
+            if unvisited:
+                next_pt = unvisited[torch.randint(0, len(unvisited), (1,)).item()]
+            else:
+                next_pt = torch.randint(0, N, (1,), device=pc_tensor.device).item()
+                visited = set()
+
+            walk.append(next_pt)
+            visited.add(next_pt)
+
+        walks[w] = torch.tensor(walk, dtype=torch.long, device=pc_tensor.device)
+
+    return walks  # shape: (num_walks, seq_len)
+
 def generate_random_walks(vertices, num_walks=32, seq_len=256, k_neighbors=8):
     """
     Generate random walks over the point cloud.

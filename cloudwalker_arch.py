@@ -59,7 +59,7 @@ class CloudWalkerBase(nn.Module):
             self.load_state_dict(checkpoint["model"])
             print(f"Loaded weights from {file_path}")
         elif os.path.exists(os.path.join(self.checkpoint_path, 'checkpoint.pth')):
-            checkpoint = torch.load(os.path.join(self.checkpoint_path, 'checkpoint.pth'), map_location=self.device)
+            checkpoint = torch.load(os.path.join(self.checkpoint_path, 'checkpoint.pth'), map_location=self.device, weights_only=True)
             self.load_state_dict(checkpoint["model"])
             print(f"Loaded checkpoint from {self.checkpoint_path}/checkpoint.pth")
 
