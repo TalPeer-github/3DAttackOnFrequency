@@ -58,7 +58,7 @@ def evaluate_cloudwalker(cfg, model_path=None):
             model_path = os.path.join(cfg.logdir, "checkpoint.pth")
             print(f"[INFO] Using checkpoint.pth")
             
-    checkpoint = torch.load(model_path, map_location=device)
+    checkpoint = torch.load(model_path, map_location=device, weights_only=True)
     model.load_state_dict(checkpoint["model"])
     print(f"[INFO] Loaded model from {model_path}")
     

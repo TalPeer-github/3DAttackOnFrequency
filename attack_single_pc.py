@@ -11,6 +11,73 @@ from mpl_toolkits.mplot3d import Axes3D
 from scipy.spatial import KDTree
 from cloudwalker_arch import CloudWalkerNet
 from dataset import PointCloudDataset, WalksDataset
+from abc import ABC, abstractmethod
+from save_walk_as_npz import generate_random_walks  # Import the walk generation function
+import networkx as nx
+
+class PointSelectionStrategy(ABC):
+    """Base class for point selection strategies in adversarial attacks."""
+    
+    @abstractmethod
+    def select_points(self, original_pc, walks, model, device):
+        """
+        Select points to perturb based on the strategy.
+        
+        Args:
+            original_pc: Original point cloud tensor
+            walks: Walk tensors
+            model: CloudWalker model
+            device: Device to run on
+            
+        Returns:
+            mask: Boolean tensor indicating which points to perturb
+        """
+        pass
+
+class AllPointsStrategy(PointSelectionStrategy):
+    """Strategy that selects all points (baseline)."""
+    
+    def select_points(self, original_pc, walks, model, device):
+        return torch.ones(original_pc.shape[0], dtype=torch.bool, device=device)
+
+
+class MSTStrategy(PointSelectionStrategy):
+    def select_points(self, original_pc, walks, model, device):
+            N = original_pc.shape[0]
+            self.N = N
+            cooccur = np.zeros((N, N), dtype=np.int32)
+
+            # Step 1: Build co-occurrence matrix
+            for walk in walks:
+                for i in range(len(walk)):
+                    for j in range(i + 1, len(walk)):
+                        a, b = walk[i], walk[j]
+                        cooccur[a, b] += 1
+                        cooccur[b, a] += 1
+
+            # Step 2: Build full graph with walk-based + high-weight fill-ins
+            G = nx.Graph()
+            for i in range(N):
+                G.add_node(i)
+                for j in range(i + 1, N):
+                    if cooccur[i, j] > 0:
+                        weight = 1.0 / (cooccur[i, j] + 1e-6)
+                    else:
+                        weight = 1e6  # VERY high weight to "force" inclusion but mark as weak
+                    G.add_edge(i, j, weight=weight)
+
+            # Step 3: Compute MST (includes all nodes, penalizes non-walk connections)
+            mst = nx.minimum_spanning_tree(G, weight='weight')
+
+            # Step 4: Score nodes by degree in MST
+            degrees = dict(mst.degree())
+            point_scores = np.array([degrees.get(i, 0) for i in range(N)])
+
+            # Step 5: Select top-K points by centrality
+            top_indices = np.argsort(point_scores)[::-1][:self.num_points]
+            return top_indices.tolist()
+
+
 
 def define_network_and_its_params(cfg):
     """
@@ -25,43 +92,6 @@ def define_network_and_its_params(cfg):
     model.load_state_dict(checkpoint["model"])
     model.eval()
     return model
-
-def perturb_walks(walks, original_pc, delta, device):
-    """
-    Apply perturbation to walk points by finding closest points in original PC
-    and applying the corresponding perturbation.
-    Returns perturbed walks with proper gradient flow.
-    """
-    # Clone walks to avoid modifying the original data
-    perturbed_walks = walks.clone()
-    
-    # Process walks in batches to avoid memory issues
-    batch_size = 1000  # Adjust based on available memory
-    
-    for start_idx in range(0, walks.shape[0], batch_size):
-        end_idx = min(start_idx + batch_size, walks.shape[0])
-        batch_walks = walks[start_idx:end_idx]
-        
-        # Compute pairwise distances between walk points and original PC points
-        # [batch_size * walk_len, 1, 3] - [1, num_points, 3] -> [batch_size * walk_len, num_points]
-        walk_points = batch_walks.reshape(-1, 1, 3)
-        pc_points = original_pc.unsqueeze(0)
-        
-        distances = torch.norm(walk_points - pc_points, dim=2)
-        
-        # Find nearest neighbors
-        nearest_indices = torch.argmin(distances, dim=1)
-        
-        # Reshape indices to match batch shape
-        nearest_indices = nearest_indices.reshape(end_idx - start_idx, batch_walks.shape[1])
-        
-        # Apply perturbations using gathered indices
-        for w in range(end_idx - start_idx):
-            for p in range(batch_walks.shape[1]):
-                idx = nearest_indices[w, p]
-                perturbed_walks[start_idx + w, p] = walks[start_idx + w, p] + delta[idx]
-    
-    return perturbed_walks
 
 def get_model_prediction(model, walks, device, enable_grad=False):
     """
@@ -168,11 +198,20 @@ def visualize_attack(original_pc, perturbed_pc, info, save_path=None):
         
         plt.close()
 
-def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, output_dir=None):
+def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, strategy, output_dir=None):
     """
-    Attack a single point cloud by perturbing its coordinates.
+    Attack a single point cloud by perturbing its coordinates using the specified strategy.
+    
+    Args:
+        cfg: Configuration parameters
+        model_id: ID of the model to attack
+        walk_dataset: Dataset containing walks
+        pc_dataset: Dataset containing point clouds
+        strategy: PointSelectionStrategy instance
+        output_dir: Directory to save results
     """
     print(f"[INFO] Attacking model: {model_id}")
+    print(f"[INFO] Using strategy: {strategy.__class__.__name__}")
     
     # Setup device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -184,22 +223,26 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, output_dir=None):
     
     # Load original point cloud and walks
     original_pc, original_label, pc_id = pc_dataset.get_by_model_id(model_id)
-    walks, label_tensor, walk_id = walk_dataset.get_by_model_id(model_id)
+    original_walks, label_tensor, walk_id = walk_dataset.get_by_model_id(model_id)
     
     # Check for ID consistency
     assert walk_id == pc_id == model_id, f"Mismatch in IDs: {walk_id}, {pc_id}, {model_id}"
     
     # Move data to device
     original_pc = original_pc.to(device)
-    walks = walks.to(device)
+    original_walks = original_walks.to(device)
     label = label_tensor.item()
     
     # Get original prediction
-    original_prediction, original_confidence = get_model_prediction(model, walks, device, enable_grad=False)
+    original_prediction, original_confidence = get_model_prediction(model, original_walks, device, enable_grad=False)
     print(f"Original prediction: {original_prediction.argmax().item()} (Confidence: {original_confidence:.4f})")
     print(f"True label: {label}")
     
-    # Initialize perturbation on the original point cloud
+    # Select points to perturb using the strategy
+    point_mask = strategy.select_points(original_pc, original_walks, model, device)
+    print(f"[INFO] Selected {point_mask.sum().item()} points to perturb")
+    
+    # Initialize perturbation on the selected points
     delta = torch.zeros_like(original_pc, requires_grad=True, device=device)
     
     # Attack parameters
@@ -222,7 +265,8 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, output_dir=None):
     history = {
         'loss': [],
         'confidence': [],
-        'prediction': []
+        'prediction': [],
+        'strategy': strategy.__class__.__name__
     }
     
     # Attack loop
@@ -233,9 +277,21 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, output_dir=None):
         # Clamp perturbation to ensure it's within epsilon bounds
         with torch.no_grad():
             delta.data = torch.clamp(delta.data, -epsilon, epsilon)
+            # Only apply perturbations to selected points
+            delta.data[~point_mask] = 0
         
-        # Apply the perturbation to the walks
-        perturbed_walks = perturb_walks(walks, original_pc, delta, device)
+        # Apply perturbation to point cloud
+        perturbed_pc = original_pc + delta
+        
+        # Generate new walks for the perturbed point cloud
+        # Convert to numpy for walk generation
+        perturbed_pc_np = perturbed_pc.detach().cpu().numpy()
+        num_walks = original_walks.shape[0]
+        seq_len = original_walks.shape[1]
+        
+        # Generate new walks
+        perturbed_walks = generate_random_walks(perturbed_pc_np, num_walks, seq_len)
+        perturbed_walks = torch.from_numpy(perturbed_walks).to(device)
         
         # Get model prediction on perturbed walks (enable gradients for attack)
         prediction, confidence = get_model_prediction(model, perturbed_walks, device, enable_grad=True)
@@ -254,6 +310,9 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, output_dir=None):
         
         # Backward pass (maximize loss)
         (-loss).backward()  # Negative for maximization
+        
+        # Zero out gradients for non-selected points
+        delta.grad[~point_mask] = 0
         
         # Update perturbation
         optimizer.step()
@@ -315,11 +374,13 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, output_dir=None):
     if attack_success and best_delta is not None:
         delta = best_delta
     
-    # Final evaluation
+    # Final evaluation with new walks
     with torch.no_grad():
         perturbed_pc = original_pc + delta
-        perturbed_walks = perturb_walks(walks, original_pc, delta, device)
-        final_prediction, final_confidence = get_model_prediction(model, perturbed_walks, device, enable_grad=False)
+        perturbed_pc_np = perturbed_pc.detach().cpu().numpy()
+        final_walks = generate_random_walks(perturbed_pc_np, num_walks, seq_len)
+        final_walks = torch.from_numpy(final_walks).to(device)
+        final_prediction, final_confidence = get_model_prediction(model, final_walks, device, enable_grad=False)
     
     # Calculate perturbation magnitude
     perturbation_magnitude = torch.norm(delta, dim=1).mean().item()
@@ -333,21 +394,20 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, output_dir=None):
         'final_confidence': final_confidence,
         'perturbation_magnitude': perturbation_magnitude,
         'attack_success': attack_success,
-        'history': history
+        'history': history,
+        'strategy': strategy.__class__.__name__,
+        'num_points_perturbed': point_mask.sum().item()
     }
     
     # Save results
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
-        out_path = os.path.join(output_dir, f"{model_id}_attacked.npz")
+        out_path = os.path.join(output_dir, f"{model_id}_{strategy.__class__.__name__}_attacked.npz")
         
-        # Save both perturbed point cloud and perturbed walks
+        # Save only perturbed point cloud and attack info
         np.savez(
             out_path,
             vertices=perturbed_pc.detach().cpu().numpy(),
-            walks=perturbed_walks.detach().cpu().numpy(),
-            original_vertices=original_pc.cpu().numpy(),
-            original_walks=walks.cpu().numpy(),
             label=label,
             model_id=model_id,
             info=info
@@ -363,9 +423,10 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, output_dir=None):
     print(f"[ATTACK {status}] Model: {model_id}")
     print(f"Original class: {label} → Final class: {final_prediction.argmax().item()}")
     print(f"Perturbation magnitude: {perturbation_magnitude:.4f}")
+    print(f"Strategy: {strategy.__class__.__name__}")
+    print(f"Points perturbed: {point_mask.sum().item()}/{original_pc.shape[0]}")
     
     return attack_success, perturbation_magnitude, info
-
 
 def attack_batch(cfg, model_ids=None, num_samples=None):
     """
@@ -399,11 +460,13 @@ def attack_batch(cfg, model_ids=None, num_samples=None):
     
     # Attack each model
     for model_id in model_ids:
+        strategy = AllPointsStrategy()
         success, perturbation, info = attack_single_pc(
             cfg=cfg,
             model_id=model_id,
             walk_dataset=walk_dataset,
             pc_dataset=pc_dataset,
+            strategy=strategy,
             output_dir=output_dir
         )
         
@@ -430,13 +493,16 @@ def attack_batch(cfg, model_ids=None, num_samples=None):
     print(f"[INFO] Attack results saved to: {summary_path}")
     return results
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="CloudWalker Adversarial Attack")
     parser.add_argument("--config", type=str, default="configs/attack_config.json", 
                         help="Path to attack configuration file")
     parser.add_argument("--id", type=str, required=False, 
                         help="Specific model ID to attack (e.g., airplane_0123)")
+    parser.add_argument("--strategy", type=str, default="all_points",
+                        choices=["all_points", "gradient_magnitude", "graph_centrality", 
+                                "mst_based", "walk_intersection", "walk_saliency"],
+                        help="Point selection strategy to use")
     
     # Optional advanced parameters
     advanced_group = parser.add_argument_group('Advanced options')
@@ -464,12 +530,18 @@ if __name__ == "__main__":
     if args.visualize:
         cfg.visualize_attacks = True
     
+    # Select strategy
+    if args.strategy == "all_points":
+        strategy = AllPointsStrategy()
+    else:
+        raise NotImplementedError(f"Strategy {args.strategy} not implemented yet")
+    
     # Run attack
     if args.id:
         # Attack a single model
         walk_dataset = WalksDataset(cfg.walk_npz_root)
         pc_dataset = PointCloudDataset(cfg.original_pc_root)
-        attack_single_pc(cfg, args.id, walk_dataset, pc_dataset, output_dir=cfg.attack_output_dir)
+        attack_single_pc(cfg, args.id, walk_dataset, pc_dataset, strategy, output_dir=cfg.attack_output_dir)
     else:
         # Attack multiple models
         attack_batch(cfg, num_samples=args.num_samples)
