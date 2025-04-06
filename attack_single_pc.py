@@ -15,6 +15,8 @@ from abc import ABC, abstractmethod
 from save_walk_as_npz import generate_random_walks_tensor  # Import the walk generation function
 import networkx as nx
 
+# -------------------- STRATEGIES ----------------------------
+
 class PointSelectionStrategy(ABC):
     """Base class for point selection strategies in adversarial attacks."""
     
@@ -39,7 +41,6 @@ class AllPointsStrategy(PointSelectionStrategy):
     
     def select_points(self, original_pc, walks, model, device):
         return torch.ones(original_pc.shape[0], dtype=torch.bool, device=device)
-
 
 class MSTStrategy(PointSelectionStrategy):
     def select_points(self, original_pc, walks, model, device):
@@ -84,8 +85,7 @@ class MSTStrategy(PointSelectionStrategy):
         return torch.tensor(point_mask, dtype=torch.bool, device=device)
 
 
-
-
+# -------------------- ATTACK_RELATED ----------------------------
 def define_network_and_its_params(cfg):
     """
     Loads CloudWalker model from config checkpoint and initializes it.
@@ -238,11 +238,13 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, strategy, output_d
     original_walks = original_walks.to(device)
     label = label_tensor.item()
     
-    # Get original prediction
-    original_prediction, original_confidence = get_model_prediction(model, original_walks, device, enable_grad=False)
-    print(f"Original prediction: {original_prediction.argmax().item()} (Confidence: {original_confidence:.4f})")
+    # Get original prediction (logits and confidence)
+    original_logits, original_confidence = get_model_prediction(model, original_walks, device, enable_grad=False)
+    original_prediction = original_logits.argmax().item()
+    original_probs = F.softmax(original_logits, dim=0).detach()  # Freeze for KL divergence target
+    print(f"Original prediction: {original_prediction} (Confidence: {original_confidence:.4f})")
     print(f"True label: {label}")
-    
+
     # Select points to perturb using the strategy
     point_mask = strategy.select_points(original_pc, original_walks, model, device)
     print(f"[INFO] Selected {point_mask.sum().item()} points to perturb")
@@ -252,26 +254,21 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, strategy, output_d
     
     # Attack parameters
     epsilon = cfg.attack_epsilon
-    iterations = 10  # Reduced from 200 for testing
-    required_consecutive_successes = 3  # Number of consecutive successes needed to stop
-    min_confidence_threshold = 0.7  # Minimum confidence required for successful attack
-    consecutive_successes = 0  # Counter for consecutive successful predictions
-    
-    # Initialize optimizer with smaller learning rate
-    optimizer = torch.optim.Adam([delta], lr=0.001)  # Reduced from default 0.01
+    iterations = 20  # Reduced from 200 for testing
+    optimizer = torch.optim.Adam([delta], lr=0.005)  # Reduced from default 0.01
     
     # Attack loop variables
     best_loss = float('-inf')
     best_delta = None
     attack_success = False
-    last_prediction = None
     history = {
         'loss': [],
         'confidence': [],
         'prediction': [],
         'strategy': strategy.__class__.__name__
     }
-    
+    num_walks = original_walks.shape[0]
+    seq_len = original_walks.shape[1]
     # Attack loop
     for i in tqdm(range(iterations), desc="Attack progress"):
         # Zero gradients
@@ -280,40 +277,20 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, strategy, output_d
         # Clamp perturbation to ensure it's within epsilon bounds
         with torch.no_grad():
             delta.data = torch.clamp(delta.data, -epsilon, epsilon)
-            # Only apply perturbations to selected points
             delta.data[~point_mask] = 0
         
         # Apply perturbation to point cloud
         perturbed_pc = original_pc + delta
-        
-        # Generate new walks for the perturbed point cloud
-        # Convert to numpy for walk generation
-        num_walks = original_walks.shape[0]
-        seq_len = original_walks.shape[1]
-
-        # Generate walks using tensor-aware function (preserves gradients)
         walk_indices = generate_random_walks_tensor(perturbed_pc, num_walks, seq_len, k_neighbors=cfg.k_neighbors)
         perturbed_walks = perturbed_pc[walk_indices]  # shape: [num_walks, seq_len, 3]    
-                
-        # Get model prediction on perturbed walks (enable gradients for attack)
         prediction, confidence = get_model_prediction(model, perturbed_walks, device, enable_grad=True)
-        
-        # Get probability distribution
-        probs = F.softmax(prediction, dim=0)
-        
-        # Cross-entropy loss with additional diversity term
-        prediction = prediction.unsqueeze(0)
-        target = torch.tensor([label], device=device)
-        ce_loss = F.cross_entropy(prediction, target)
-        
-        # Add diversity loss to encourage different probability distribution
-        diversity_loss = -torch.sum(probs * torch.log(probs + 1e-10))  # Negative entropy
-        loss = ce_loss - 0.1 * diversity_loss  # Weighted combination
-        
-        # Backward pass (maximize loss)
-        (-loss).backward()  # Negative for maximization
-        
-        # Zero out gradients for non-selected points
+            
+        # Compute KL divergence between current and clean prediction
+        log_probs = F.log_softmax(prediction, dim=0)
+        kl_loss = F.kl_div(log_probs, original_probs, reduction='batchmean')
+        print(f"[DEBUG] KL Divergence: {kl_loss:.4f}")
+        kl_loss.backward()
+
         with torch.no_grad():
             delta.data[~point_mask] = 0
 
@@ -322,74 +299,38 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, strategy, output_d
         
         # Track metrics
         current_pred = prediction.argmax().item()
-        history['loss'].append(loss.item())
+        history['loss'].append(kl_loss.item())
         history['confidence'].append(confidence)
         history['prediction'].append(current_pred)
         
-        # Check attack status with stricter criteria
-        is_different_class = current_pred != label
-        is_confident = confidence >= min_confidence_threshold
-        prob_difference = torch.abs(probs[current_pred] - probs[label]).item()
-        is_significant = prob_difference > 0.3  # Require significant probability shift
-        
-        if is_different_class and is_confident and is_significant:
-            if last_prediction == current_pred:  # Only count if prediction stays the same
-                consecutive_successes += 1
-                print(f"[SUCCESS] Model fooled with confidence {confidence:.4f}! "
-                      f"({consecutive_successes}/{required_consecutive_successes} consecutive times)")
-                print(f"Probability difference: {prob_difference:.4f}")
-            else:
-                consecutive_successes = 1
-                print(f"[SUCCESS] Model fooled for the first time with confidence {confidence:.4f}!")
-                print(f"Probability difference: {prob_difference:.4f}")
-            
-            if loss.item() > best_loss:  # Update best delta if loss is better
-                best_loss = loss.item()
-                best_delta = delta.clone()
-                attack_success = True
-        else:
-            consecutive_successes = 0
-            if not is_different_class:
-                print(f"[ATTEMPT] Model not fooled yet (predicted class {current_pred})")
-            elif not is_confident:
-                print(f"[ATTEMPT] Model fooled but confidence too low ({confidence:.4f} < {min_confidence_threshold})")
-            else:
-                print(f"[ATTEMPT] Model fooled but probability shift too small ({prob_difference:.4f})")
-        
-        last_prediction = current_pred
         
         # Print detailed progress every 5 iterations
         if (i + 1) % 5 == 0:
             print(f"\nIteration {i+1}/{iterations}:")
-            print(f"Loss: {loss.item():.4f}")
+            print(f"Loss: {kl_loss.item():.4f}")
             print(f"Confidence: {confidence:.4f}")
             print(f"Current prediction: {current_pred}")
             print(f"Perturbation magnitude: {torch.norm(delta, dim=1).mean().item():.6f}")
-            print(f"Probability distribution: {probs.detach().cpu().numpy()}\n")
+            print(f"Probability distribution: {log_probs.detach().cpu().numpy()}\n")
         
-        # Early stopping if we've fooled the model consistently
-        if consecutive_successes >= required_consecutive_successes:
-            print(f"\n[EARLY STOPPING] Successfully fooled model {consecutive_successes} times in a row!")
-            print(f"Final probability distribution: {probs.detach().cpu().numpy()}")
-            break
 
     # Use best delta if available
-    if attack_success and best_delta is not None:
+        if kl_loss.item() > best_loss:
+                best_loss = kl_loss.item()
+                best_delta = delta.clone()
+                attack_success = current_pred != label
+
+    if best_delta is not None:
         delta = best_delta
-    
-    # Final evaluation with new walks
+
     with torch.no_grad():
         perturbed_pc = original_pc + delta
         final_indices = generate_random_walks_tensor(perturbed_pc, num_walks, seq_len, k_neighbors=cfg.k_neighbors)
         final_walks = perturbed_pc[final_indices]
-
-
         final_prediction, final_confidence = get_model_prediction(model, final_walks, device, enable_grad=False)
-    
-    # Calculate perturbation magnitude
+
     perturbation_magnitude = torch.norm(delta, dim=1).mean().item()
-    
-    # Create info dictionary with attack results
+
     info = {
         'model_id': model_id,
         'original_label': label,
@@ -402,13 +343,10 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, strategy, output_d
         'strategy': strategy.__class__.__name__,
         'num_points_perturbed': point_mask.sum().item()
     }
-    
-    # Save results
+
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
         out_path = os.path.join(output_dir, f"{model_id}_{strategy.__class__.__name__}_attacked.npz")
-        
-        # Save only perturbed point cloud and attack info
         np.savez(
             out_path,
             vertices=perturbed_pc.detach().cpu().numpy(),
@@ -417,19 +355,17 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, strategy, output_d
             info=info
         )
         print(f"[INFO] Saved attacked data to: {out_path}")
-        
-        # Visualize attack
+
         if cfg.visualize_attacks:
             visualize_attack(original_pc.cpu(), perturbed_pc.detach().cpu(), info, out_path)
-    
-    # Print summary
+
     status = "SUCCESS" if attack_success else "FAILED"
     print(f"[ATTACK {status}] Model: {model_id}")
     print(f"Original class: {label} → Final class: {final_prediction.argmax().item()}")
     print(f"Perturbation magnitude: {perturbation_magnitude:.4f}")
     print(f"Strategy: {strategy.__class__.__name__}")
     print(f"Points perturbed: {point_mask.sum().item()}/{original_pc.shape[0]}")
-    
+
     return attack_success, perturbation_magnitude, info
 
 def attack_batch(cfg, model_ids=None, num_samples=None):

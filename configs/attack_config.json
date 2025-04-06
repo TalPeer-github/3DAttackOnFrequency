@@ -5,7 +5,7 @@
   "attack_output_dir": "attacks/cloudwalker",
   "num_classes": 8,
   "attack_epsilon": 0.05,
-  "attack_step_size": 0.002,
+  "attack_step_size": 0.005,
   "attack_iterations": 200,
   "k_neighbors": 8,
   "visualize_attacks": true,

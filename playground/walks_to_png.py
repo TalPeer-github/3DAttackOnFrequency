@@ -6,8 +6,8 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
 # Set the correct file paths
-walks_path = "/home/cohen-idan/finalproj/Preprocessing/pre_created_walks/train/airplane_0027/airplane_0027_traj.npz"
-original_path = "/home/cohen-idan/finalproj/Preprocessing/datasets_processed/modelnet40_normal_resampled/train/train__5000__airplane__airplane_0027.npz"
+walks_path = "/home/cohen-idan/finalproj/Preprocessing/pre_created_walks/test/car_0204/car_0204_traj.npz"
+original_path = "/home/cohen-idan/finalproj/Preprocessing/datasets_processed/modelnet40_normal_resampled/test/test__5000__car__car_0204.npz"
 
 # ✅ Load the generated walks file
 data = np.load(walks_path)
