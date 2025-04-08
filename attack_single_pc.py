@@ -16,6 +16,7 @@ from save_walk_as_npz import generate_random_walks_tensor  # Import the walk gen
 import networkx as nx
 import matplotlib
 matplotlib.use('Agg')  # Use non-GUI backend
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 # -------------------- STRATEGIES ----------------------------
@@ -44,6 +45,49 @@ class AllPointsStrategy(PointSelectionStrategy):
     
     def select_points(self, original_pc, walks, model, device):
         return torch.ones(original_pc.shape[0], dtype=torch.bool, device=device)
+    
+class PageRankStrategy(PointSelectionStrategy):
+    
+    def select_points(self, original_pc, walks, device, model_id=None):
+        walks = walks.detach().cpu().numpy().astype(np.int32)
+        N = original_pc.shape[0]
+
+        # Step 1: Build co-occurrence graph
+        cooccur = np.zeros((N, N), dtype=np.int32)
+        for walk in walks:
+            for i in range(len(walk)):
+                for j in range(i + 1, len(walk)):
+                    a, b = walk[i], walk[j]
+                    cooccur[a, b] += 1
+                    cooccur[b, a] += 1
+
+        # Step 2: Construct graph for PageRank
+# Step 2: Construct graph for PageRank
+        G = nx.Graph()
+        G.add_nodes_from(range(N))  # Ensure all nodes are present even if some are disconnected
+
+        for i in range(N):
+            for j in range(i + 1, N):
+                if cooccur[i, j] > 0:
+                    G.add_edge(i, j, weight=cooccur[i, j])
+
+
+        assert len(G.nodes) > 0
+        # Step 3: Run PageRank
+        print("[INFO] Running PageRank...")
+        pr_scores = nx.pagerank(G, weight='weight')
+
+        # Step 4: Select top-K points based on PageRank
+        sorted_indices = sorted(pr_scores.items(), key=lambda x: x[1], reverse=True)
+        topk = [idx for idx, _ in sorted_indices[:100]]
+
+        # Step 5: Return mask
+        mask = np.zeros(N, dtype=bool)
+        mask[topk] = True
+        cache_path = "cached_pagerank" 
+        np.save(cache_path, mask)
+        print(f"[INFO] Saved PageRank mask to {cache_path}")
+        return torch.tensor(mask, dtype=torch.bool, device=device)
 
 class MSTStrategy(PointSelectionStrategy):
     def __init__(self, cache_dir='cached_msts'):
@@ -86,7 +130,7 @@ class MSTStrategy(PointSelectionStrategy):
 
         degrees = dict(mst.degree())
         point_scores = np.array([degrees.get(i, 0) for i in range(N)])
-        top_indices = np.argsort(point_scores)[::-1][:1000]
+        top_indices = np.argsort(point_scores)[::-1][:100]
         point_mask = np.zeros(N, dtype=bool)
         point_mask[top_indices] = True
 
@@ -479,7 +523,7 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, strategy, output_d
     return attack_success, perturbation_magnitude, info
 
 def select_points_for_pc(model_id, walk_dataset, pc_dataset, strategy):
-    print("Generating MST...")
+    print("Generating mask...")
     original_pc, original_label, pc_id = pc_dataset.get_by_model_id(model_id)
     original_walks, label_tensor, walk_id = walk_dataset.get_by_model_id(model_id)
     assert walk_id == pc_id == model_id
@@ -491,7 +535,7 @@ def select_points_for_pc(model_id, walk_dataset, pc_dataset, strategy):
     point_mask = strategy.select_points(original_pc, original_walks, device)  # shape: [N]
     print(f"[INFO] Selected {point_mask.sum().item()} points for perturbation")
 
-def plot_mask_on_pc(original_pc, mask, title="MST-selected Points", save_path="mst_plot.png"):
+def plot_mask_on_pc(original_pc, mask, title="Heuristic Selected Points", save_path="mask.png"):
     """
     Plots the point cloud with MST-selected points highlighted (no graph edges).
 
@@ -597,7 +641,7 @@ if __name__ == "__main__":
     parser.add_argument("--id", type=str, required=False, 
                         help="Specific model ID to attack (e.g., airplane_0123)")
     parser.add_argument("--strategy", type=str, default="mst",
-                        choices=["all_points", "mst"],
+                        choices=["all_points", "mst", "pagerank"],
                         help="Point selection strategy to use")
     
     # Optional advanced parameters
@@ -629,8 +673,10 @@ if __name__ == "__main__":
     # Select strategy
     if args.strategy == "all_points":
         strategy = AllPointsStrategy()
-    if args.strategy == "mst":
+    elif args.strategy == "mst":
         strategy = MSTStrategy()
+    elif args.strategy == "pagerank":
+        strategy = PageRankStrategy()
     else:
         raise NotImplementedError(f"Strategy {args.strategy} not implemented yet")
     
@@ -641,9 +687,11 @@ if __name__ == "__main__":
         pc_dataset = PointCloudDataset(cfg.original_pc_root)
         #attack_single_pc(cfg, args.id, walk_dataset, pc_dataset, strategy, output_dir="attacks/cloudwalker")
         original_pc, original_label, pc_id = pc_dataset.get_by_model_id(args.id)
-        mst_path = "/home/cohen-idan/finalproj/Preprocessing/cached_msts.npy"
-        mst = np.load(mst_path)
-        plot_mask_on_pc(original_pc, mst)
+        
+        select_points_for_pc(args.id, walk_dataset, pc_dataset, strategy)
+        mask_path = "/home/cohen-idan/finalproj/Preprocessing/cached_pagerank.npy"
+        mask = np.load(mask_path)
+        plot_mask_on_pc(original_pc, mask)
     else:
         # Attack multiple models
         attack_batch(cfg, num_samples=args.num_samples)
