@@ -14,6 +14,9 @@ from dataset import PointCloudDataset, WalksDataset
 from abc import ABC, abstractmethod
 from save_walk_as_npz import generate_random_walks_tensor  # Import the walk generation function
 import networkx as nx
+import matplotlib
+matplotlib.use('Agg')  # Use non-GUI backend
+
 
 # -------------------- STRATEGIES ----------------------------
 
@@ -43,15 +46,27 @@ class AllPointsStrategy(PointSelectionStrategy):
         return torch.ones(original_pc.shape[0], dtype=torch.bool, device=device)
 
 class MSTStrategy(PointSelectionStrategy):
-    def select_points(self, original_pc, walks, model, device):
-        # Ensure walks is on CPU and in integer numpy format
-        walks = walks.detach().cpu().numpy().astype(np.int32)
+    def __init__(self, cache_dir='cached_msts'):
+        super().__init__()
+        self.cache_dir = cache_dir
+        os.makedirs(self.cache_dir, exist_ok=True)
 
+    def select_points(self, original_pc, walks, device, model_id=None):
+        """
+        Selects important points based on MST of walk co-occurrence, using caching when available.
+        """
+        if model_id:
+            cache_path = os.path.join(self.cache_dir, f"{model_id}_mst_mask.npy")
+            if os.path.exists(cache_path):
+                print(f"[INFO] Loaded cached MST mask for {model_id}")
+                mask_np = np.load(cache_path)
+                return torch.tensor(mask_np, dtype=torch.bool, device=device)
+
+        # Compute fresh MST
+        walks = walks.detach().cpu().numpy().astype(np.int32)
         N = original_pc.shape[0]
-        self.N = N
         cooccur = np.zeros((N, N), dtype=np.int32)
 
-        # Step 1: Build co-occurrence matrix
         for walk in walks:
             for i in range(len(walk)):
                 for j in range(i + 1, len(walk)):
@@ -59,28 +74,25 @@ class MSTStrategy(PointSelectionStrategy):
                     cooccur[a, b] += 1
                     cooccur[b, a] += 1
 
-        # Step 2: Build full graph with walk-based + high-weight fill-ins
         G = nx.Graph()
         for i in range(N):
             G.add_node(i)
             for j in range(i + 1, N):
-                if cooccur[i, j] > 0:
-                    weight = 1.0 / (cooccur[i, j] + 1e-6)
-                else:
-                    weight = 1e6  # Penalize missing co-occurrence
+                weight = 1.0 / (cooccur[i, j] + 1e-6) if cooccur[i, j] > 0 else 1e6
                 G.add_edge(i, j, weight=weight)
 
-        # Step 3: Compute MST
         mst = nx.minimum_spanning_tree(G, weight='weight')
-        print(f"MST is {mst}")
-        # Step 4: Score by node degree in MST
+        print(f"[INFO] MST is Graph with {len(mst.nodes)} nodes and {len(mst.edges)} edges")
+
         degrees = dict(mst.degree())
         point_scores = np.array([degrees.get(i, 0) for i in range(N)])
-
-        # Step 5: Select top-K points
-        top_indices = np.argsort(point_scores)[::-1][:1000] # 20% points. 
+        top_indices = np.argsort(point_scores)[::-1][:1000]
         point_mask = np.zeros(N, dtype=bool)
         point_mask[top_indices] = True
+
+        cache_path = "cached_msts" 
+        np.save(cache_path, point_mask)
+        print(f"[INFO] Saved MST mask to {cache_path}")
 
         return torch.tensor(point_mask, dtype=torch.bool, device=device)
 
@@ -126,7 +138,7 @@ def get_model_prediction(model, walks, device, enable_grad=False):
         for w in range(num_walks):
             # Extract single walk
             walk_batch = walks[w].unsqueeze(0)  # [1, walk_len, 3]
-            
+            walk_batch = walk_batch.to(torch.float)
             # Get prediction
             if enable_grad:
                 _, logits = model(walk_batch, classify=False)
@@ -241,12 +253,15 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, strategy, output_d
     # Get original prediction (logits and confidence)
     original_logits, original_confidence = get_model_prediction(model, original_walks, device, enable_grad=False)
     original_prediction = original_logits.argmax().item()
-    original_probs = F.softmax(original_logits, dim=0).detach()  # Freeze for KL divergence target
+    temperature = 2.0
+    original_probs = F.softmax(original_logits / temperature, dim=0).detach()
+    #original_probs = F.softmax(original_logits, dim=0).detach()  # Freeze for KL divergence target
     print(f"Original prediction: {original_prediction} (Confidence: {original_confidence:.4f})")
     print(f"True label: {label}")
+    print(f"Original probs: {original_probs}")
 
     # Select points to perturb using the strategy
-    point_mask = strategy.select_points(original_pc, original_walks, model, device)
+    point_mask = strategy.select_points(original_pc, original_walks, device)
     print(f"[INFO] Selected {point_mask.sum().item()} points to perturb")
     
     # Initialize perturbation on the selected points
@@ -288,9 +303,9 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, strategy, output_d
         # Compute KL divergence between current and clean prediction
         log_probs = F.log_softmax(prediction, dim=0)
         kl_loss = F.kl_div(log_probs, original_probs, reduction='batchmean')
-        print(f"[DEBUG] KL Divergence: {kl_loss:.4f}")
-        kl_loss.backward()
-
+        print(f"[DEBUG] KL Divergence Loss: {kl_loss:.4f}")
+        (-kl_loss).backward()
+        print(f"[DEBUG] delta.grad.norm(): {delta.grad.norm():.6f}")
         with torch.no_grad():
             delta.data[~point_mask] = 0
 
@@ -367,6 +382,148 @@ def attack_single_pc(cfg, model_id, walk_dataset, pc_dataset, strategy, output_d
     print(f"Points perturbed: {point_mask.sum().item()}/{original_pc.shape[0]}")
 
     return attack_success, perturbation_magnitude, info
+
+    print(f"[INFO] Running MST-based heuristic attack on model: {model_id}")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Load model and eval
+    model = define_network_and_its_params(cfg).to(device)
+    model.eval()
+
+    # Load data
+    original_pc, original_label, pc_id = pc_dataset.get_by_model_id(model_id)
+    original_walks, label_tensor, walk_id = walk_dataset.get_by_model_id(model_id)
+    assert walk_id == pc_id == model_id
+
+    original_pc = original_pc.to(device)
+    original_walks = original_walks.to(device)
+    label = label_tensor.item()
+
+    # Get initial prediction
+    original_logits, original_confidence = get_model_prediction(model, original_walks, device, enable_grad=False)
+    original_pred = original_logits.argmax().item()
+
+    print(f"[INFO] Original prediction: {original_pred} (Confidence: {original_confidence:.4f})")
+    print(f"[INFO] True label: {label}")
+
+    # Select MST points
+    point_mask = strategy.select_points(original_pc, original_walks, device)  # shape: [N]
+    print(f"[INFO] Selected {point_mask.sum().item()} points for perturbation")
+
+    # Prepare delta
+    delta = torch.zeros_like(original_pc, device=device)
+
+    if shift_type == "centroid":
+        centroid = original_pc.mean(dim=0, keepdim=True)
+        direction = -F.normalize(original_pc - centroid, dim=1)
+        delta[point_mask] = torch.randn_like(original_pc[point_mask]) * alpha
+
+    elif shift_type == "noise":
+        noise = F.normalize(torch.randn_like(original_pc), dim=1)
+        delta[point_mask] = noise[point_mask] * alpha
+
+    else:
+        raise ValueError(f"Unsupported shift_type: {shift_type}")
+
+    # Clamp within epsilon
+    delta = torch.clamp(delta, -cfg.attack_epsilon, cfg.attack_epsilon)
+
+    # Apply perturbation
+    perturbed_pc = original_pc + delta
+
+    # Generate new walks (fresh, realistic classification)
+    num_walks = original_walks.shape[0]
+    seq_len = original_walks.shape[1]
+    walk_indices = generate_random_walks_tensor(perturbed_pc, num_walks, seq_len, k_neighbors=cfg.k_neighbors)
+    perturbed_walks = perturbed_pc[walk_indices]
+
+    final_logits, final_confidence = get_model_prediction(model, perturbed_walks, device, enable_grad=False)
+    final_pred = final_logits.argmax().item()
+
+    # Stats
+    perturbation_magnitude = torch.norm(delta, dim=1).mean().item()
+    attack_success = final_pred != label
+
+    info = {
+        'model_id': model_id,
+        'original_label': label,
+        'original_confidence': original_confidence,
+        'final_prediction': final_pred,
+        'final_confidence': final_confidence,
+        'perturbation_magnitude': perturbation_magnitude,
+        'attack_success': attack_success,
+        'strategy': strategy.__class__.__name__,
+        'shift_type': shift_type,
+        'num_points_perturbed': point_mask.sum().item()
+    }
+
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        out_path = os.path.join(output_dir, f"{model_id}_{strategy.__class__.__name__}_{shift_type}_attack.npz")
+        np.savez(
+            out_path,
+            vertices=perturbed_pc.detach().cpu().numpy(),
+            label=label,
+            model_id=model_id,
+            info=info
+        )
+        print(f"[INFO] Saved attacked point cloud to {out_path}")
+
+        if cfg.visualize_attacks:
+            visualize_attack(original_pc.cpu(), perturbed_pc.detach().cpu(), info, out_path)
+
+    # Report
+    status = "SUCCESS" if attack_success else "FAILED"
+    print(f"[ATTACK {status}] {label} → {final_pred} | Confidence: {final_confidence:.4f} | Magnitude: {perturbation_magnitude:.4f}")
+
+    return attack_success, perturbation_magnitude, info
+
+def select_points_for_pc(model_id, walk_dataset, pc_dataset, strategy):
+    print("Generating MST...")
+    original_pc, original_label, pc_id = pc_dataset.get_by_model_id(model_id)
+    original_walks, label_tensor, walk_id = walk_dataset.get_by_model_id(model_id)
+    assert walk_id == pc_id == model_id
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    original_pc = original_pc.to(device)
+    original_walks = original_walks.to(device)
+    
+    point_mask = strategy.select_points(original_pc, original_walks, device)  # shape: [N]
+    print(f"[INFO] Selected {point_mask.sum().item()} points for perturbation")
+
+def plot_mask_on_pc(original_pc, mask, title="MST-selected Points", save_path="mst_plot.png"):
+    """
+    Plots the point cloud with MST-selected points highlighted (no graph edges).
+
+    Args:
+        original_pc (np.ndarray): [N, 3] array of XYZ coordinates.
+        mst_mask (np.ndarray): [N] binary mask, True for MST-selected points.
+        title (str): Title of the plot.
+        save_path (str): Path to save the resulting PNG image.
+    """
+    assert len(original_pc) == len(mask), "Point cloud and mask must be same length"
+
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+    ax.set_title(title)
+
+    # Full point cloud - light gray, low alpha
+    ax.scatter(original_pc[:, 0], original_pc[:, 1], original_pc[:, 2],
+               s=5, c='lightgray', alpha=0.2, label='Point Cloud')
+
+    # Overlay MST-selected points (yellow)
+    selected_points = original_pc[mask]
+    ax.scatter(selected_points[:, 0], selected_points[:, 1], selected_points[:, 2],
+               s=10, c='pink', alpha=0.4, label='MST-selected', edgecolors='black')
+
+    ax.legend(loc='upper right', fontsize=10)
+    ax.set_axis_off()
+    ax.view_init(elev=20, azim=45)
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"[INFO] Saved MST point visualization to: {save_path}")
+
 
 def attack_batch(cfg, model_ids=None, num_samples=None):
     """
@@ -479,10 +636,15 @@ if __name__ == "__main__":
     
     # Run attack
     if args.id:
-        # Attack a single model
+        # # Attack a single model
         walk_dataset = WalksDataset(cfg.walk_npz_root)
         pc_dataset = PointCloudDataset(cfg.original_pc_root)
-        attack_single_pc(cfg, args.id, walk_dataset, pc_dataset, strategy, output_dir=cfg.attack_output_dir)
+        #attack_single_pc(cfg, args.id, walk_dataset, pc_dataset, strategy, output_dir="attacks/cloudwalker")
+        original_pc, original_label, pc_id = pc_dataset.get_by_model_id(args.id)
+        mst_path = "/home/cohen-idan/finalproj/Preprocessing/cached_msts.npy"
+        mst = np.load(mst_path)
+        plot_mask_on_pc(original_pc, mst)
     else:
         # Attack multiple models
         attack_batch(cfg, num_samples=args.num_samples)
+        

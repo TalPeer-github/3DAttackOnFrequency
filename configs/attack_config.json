@@ -6,7 +6,7 @@
   "num_classes": 8,
   "attack_epsilon": 0.05,
   "attack_step_size": 0.005,
-  "attack_iterations": 200,
+  "attack_iterations": 50,
   "k_neighbors": 8,
   "visualize_attacks": true,
   "use_norm_layer": "BatchNorm",
