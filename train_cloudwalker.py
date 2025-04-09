@@ -247,6 +247,8 @@ def _train_epoch(model, dataloader, optimizer, criterion, device, scheduler):
         # Move data to device
         walk_features = walk_features.to(device)  # [B, num_walks, walk_len, 3]
         labels = labels.to(device)  # [B]
+        # print(f"Labels: {labels.tolist()}")
+        # print(f"Max label: {labels.max().item()}")
         
         # Get shapes
         batch_size, num_walks, walk_len, _ = walk_features.shape

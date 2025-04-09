@@ -689,7 +689,7 @@ if __name__ == "__main__":
         original_pc, original_label, pc_id = pc_dataset.get_by_model_id(args.id)
         
         select_points_for_pc(args.id, walk_dataset, pc_dataset, strategy)
-        mask_path = "/home/cohen-idan/finalproj/Preprocessing/cached_pagerank.npy"
+        mask_path = "/home/cohen-idan/finalproj/Preprocessing/cached_msts.npy"
         mask = np.load(mask_path)
         plot_mask_on_pc(original_pc, mask)
     else:

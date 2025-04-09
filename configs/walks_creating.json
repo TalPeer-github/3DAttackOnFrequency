@@ -7,13 +7,15 @@
   "num_walks_per_sample": 32,
   "k_neighbors": 8,
   "categories": [
-    "airplane",
-    "lamp",
-    "car",
-    "plant",
-    "xbox",
-    "guitar",
+    "bathtub",
+    "bed",
+    "chair",
+    "desk",
+    "dresser",
+    "monitor",
+    "night_stand",
     "sofa",
-    "monitor"
+    "table",
+    "toilet"
   ]
 }
