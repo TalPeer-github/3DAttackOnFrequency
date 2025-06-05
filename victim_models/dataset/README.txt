@@ -1,4 +1,4 @@
-Original ModelNet10 Readme:
+Original ModelNet10 README:
 
 This folder contains 10 categories of CAD models from the Princeton ModelNet dataset. 
 This 10 categories are used in our paper for experiments.
