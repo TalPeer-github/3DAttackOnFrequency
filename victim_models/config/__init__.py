@@ -1,0 +1,2 @@
+from .config import get_train_config, get_test_config
+from .config import modelnet10_classes,modelnet10_labels,filtered_classes,filtered_labels

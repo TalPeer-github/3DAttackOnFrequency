@@ -1,0 +1,28 @@
+# dataset
+cuda_devices: '0'
+
+dataset:
+  # data_root: 'dataset/ModelNet10_attacked_pts_2048_lowpass_spec_processed'
+  #data_root: 'dataset/ModelNet10_attacked_pts_2048_lowpass_spec0125_processed'
+  data_root: 'dataset/ModelNet10_attacked_filtered_le2048_pts_2048_lowpass_spec0125_processed'
+  # data_root: 'dataset/ModelNet10_attacked_processed'
+  augment_data: false
+  max_faces: 20000
+
+# model
+load_model: 'checkpoints/MeshNet_best.pkl'
+
+# MeshNet
+MeshNet:
+  structural_descriptor:
+    num_kernel: 64
+    sigma: 0.2
+  mesh_convolution:
+    aggregation_method: 'Concat'  # Concat/Max/Average
+  mask_ratio: 0.95
+  dropout: 0.5
+  num_classes: 10
+
+# test config
+batch_size: 1
+retrieval_on: true

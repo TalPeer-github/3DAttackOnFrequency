@@ -1,0 +1,40 @@
+
+cuda_devices: '0,1,2'   
+
+
+dataset:
+  data_root: 'dataset/ModelNet10'
+  num_points = 2048
+  augment_data: false
+  jitter_sigma: 0.01
+  jitter_clip: 0.05
+
+
+ckpt_root: 'checkpoints/pointnet'
+
+PointNet:
+  mesh_convolution:
+    aggregation_method: 'Max'  # Concat/Max/Average
+  dropout: 0.18
+  num_classes: 10
+
+seed: 0
+max_epoch: 10
+num_workers: 4
+
+batch_size: 8
+num_point_to_sample: 2048
+set_abstraction_ratio_1: 0.4624
+set_abstraction_ratio_2: 0.2868
+set_abstraction_radius_1: 0.7562
+set_abstraction_radius_2: 0.5
+dropout: 0.18
+lr: 0.0005
+momentum: 0.9
+weight_decay: 0.0005
+
+optimizer: 'adam' # sgd/adamw
+milestones: [30, 60, 90]
+gamma: 0.1
+retrieval_on: true   
+save_steps: 10
