@@ -3,5 +3,5 @@
 - **Idan Cohen**
 - **Tomer Zvi** 
 
-![](diagram.png)
+![](imgs/diagram.png)
 
